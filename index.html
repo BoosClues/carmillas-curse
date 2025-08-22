@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Carmilla's Curse Puzzle Box</title>
-    <!-- Import the Mr. Darcy font; falls back to Georgia/serif if loading fails -->
+
+    <!-- Import the Mr. Darcy font -->
     <style>
       @import url("https://use.typekit.net/ubq8bdc.css");
     </style>
+
     <style>
       :root {
         --obsidian: #0b0b0b;
@@ -21,6 +23,7 @@
         background-color: var(--obsidian);
         color: var(--notebook-white);
       }
+      /* Overlay for instructions */
       #overlay {
         position: absolute;
         top: 10px;
@@ -74,42 +77,19 @@
       }
       #certificate img { max-width: 100%; margin-bottom: 1rem; }
       #certificate h2 { margin: 0 0 0.5rem 0; color: var(--deep-red); }
-      /* 3D cube viewport */
-      #viewport {
+
+      /* Container for Three.js canvas */
+      #three-container {
         position: absolute;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        perspective: 1000px;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
       }
-      #cube {
-        position: relative;
-        width: 220px; height: 220px;
-        transform-style: preserve-3d;
-        transition: transform 0.3s ease-out;
-      }
-      .face {
-        position: absolute;
-        width: 220px; height: 220px;
-        background-image: url('boxTexture.png');
-        background-size: cover;
-        background-position: center;
-        border: 1px solid rgba(255,255,255,0.05);
-        box-sizing: border-box;
-        backface-visibility: hidden;
-        cursor: pointer;
-      }
-      .front { transform: rotateY(0deg) translateZ(110px); }
-      .back { transform: rotateY(180deg) translateZ(110px); }
-      .right { transform: rotateY(90deg) translateZ(110px); }
-      .left { transform: rotateY(-90deg) translateZ(110px); }
-      .top { transform: rotateX(90deg) translateZ(110px); }
-      .bottom { transform: rotateX(-90deg) translateZ(110px); }
     </style>
   </head>
   <body>
+    <!-- Instruction overlay -->
     <div id="overlay">
       <h1>Carmilla's Curse</h1>
       <p id="instructionText">
@@ -121,6 +101,7 @@
       <button id="musicBtn">Play Music</button>
     </div>
 
+    <!-- Certificate overlay -->
     <div id="certificate">
       <div class="cert-content">
         <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
@@ -133,20 +114,17 @@
       </div>
     </div>
 
-    <div id="viewport">
-      <div id="cube">
-        <div class="face front"  data-face="front"></div>
-        <div class="face back"   data-face="back"></div>
-        <div class="face right"  data-face="right"></div>
-        <div class="face left"   data-face="left"></div>
-        <div class="face top"    data-face="top"></div>
-        <div class="face bottom" data-face="bottom"></div>
-      </div>
-    </div>
+    <!-- Three.js container -->
+    <div id="three-container"></div>
 
-    <!-- Place your own MP3 file named background.mp3 in the same folder -->
+    <!-- Background music -->
     <audio id="bgMusic" src="background.mp3" loop></audio>
 
+    <!-- Load Three.js and OrbitControls from a CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Your script that sets up the Three.js scene -->
     <script src="./script.js"></script>
   </body>
 </html>
