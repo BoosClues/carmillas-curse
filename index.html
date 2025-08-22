@@ -1,130 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Carmilla's Curse Puzzle Box</title>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carmilla's Curse Puzzle Box</title>
 
-    <!-- Import the Mr. Darcy font -->
-    <style>
-      @import url("https://use.typekit.net/ubq8bdc.css");
-    </style>
+  <!-- Import the Mr. Darcy font -->
+  <style>
+    @import url("https://use.typekit.net/ubq8bdc.css");
+  </style>
 
-    <style>
-      :root {
-        --obsidian: #0b0b0b;
-        --deep-red: #6b1e2b;
-        --notebook-white: #f5f5f5;
-      }
-      body {
-        margin: 0;
-        overflow: hidden;
-        font-family: "mr-darcy", Georgia, serif;
-        background-color: var(--obsidian);
-        color: var(--notebook-white);
-      }
-      /* Overlay for instructions */
-      #overlay {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        z-index: 10;
-        background: rgba(0,0,0,0.7);
-        padding: 1rem;
-        border-radius: 5px;
-        max-width: 340px;
-      }
-      #overlay h1 {
-        margin: 0 0 0.5rem 0;
-        font-size: 1.6rem;
-        color: var(--deep-red);
-      }
-      #overlay p {
-        margin: 0 0 0.5rem 0;
-        line-height: 1.3;
-      }
-      #overlay button {
-        padding: 0.5rem 0.8rem;
-        background: var(--deep-red);
-        border: none;
-        color: var(--notebook-white);
-        font-family: inherit;
-        cursor: pointer;
-        border-radius: 3px;
-        margin-right: 0.5rem;
-      }
-      /* Certificate overlay (hidden by default) */
-      #certificate {
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background: rgba(0,0,0,0.85);
-        display: none;
-        justify-content: center;
-        align-items: center;
-        z-index: 20;
-      }
-      #certificate.show {
-        display: flex;
-      }
-      #certificate .cert-content {
-        background: var(--obsidian);
-        border: 2px solid var(--deep-red);
-        padding: 1.5rem;
-        text-align: center;
-        max-width: 400px;
-        border-radius: 6px;
-      }
-      #certificate img { max-width: 100%; margin-bottom: 1rem; }
-      #certificate h2 { margin: 0 0 0.5rem 0; color: var(--deep-red); }
+  <style>
+    :root {
+      --obsidian: #0b0b0b;
+      --deep-red: #6b1e2b;
+      --notebook-white: #f5f5f5;
+    }
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: "mr-darcy", Georgia, serif;
+      background-color: var(--obsidian);
+      color: var(--notebook-white);
+    }
+    /* Instruction overlay */
+    #overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.7);
+      padding: 1rem;
+      border-radius: 5px;
+      max-width: 340px;
+    }
+    #overlay h1 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.6rem;
+      color: var(--deep-red);
+    }
+    #overlay p {
+      margin: 0 0 0.5rem 0;
+      line-height: 1.3;
+    }
+    #overlay button {
+      padding: 0.5rem 0.8rem;
+      background: var(--deep-red);
+      border: none;
+      color: var(--notebook-white);
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 3px;
+      margin-right: 0.5rem;
+    }
 
-      /* Container for Three.js canvas */
-      #three-container {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Instruction overlay -->
-    <div id="overlay">
-      <h1>Carmilla's Curse</h1>
-      <p id="instructionText">
-        Rotate the box by dragging anywhere in the empty space. Click each face
-        to solve a hidden puzzle. When all faces are solved, a secret artefact
-        will be revealed. You can reset the orientation at any time.
+    /* Certificate overlay (hidden by default) */
+    #certificate {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 20;
+    }
+    #certificate.show {
+      display: flex;
+    }
+    #certificate .cert-content {
+      background: var(--obsidian);
+      border: 2px solid var(--deep-red);
+      padding: 1.5rem;
+      text-align: center;
+      max-width: 400px;
+      border-radius: 6px;
+    }
+    #certificate img { max-width: 100%; margin-bottom: 1rem; }
+    #certificate h2 { margin: 0 0 0.5rem 0; color: var(--deep-red); }
+
+    /* Container for Three.js canvas */
+    #three-container {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <!-- Instruction overlay -->
+  <div id="overlay">
+    <h1>Carmilla's Curse</h1>
+    <p id="instructionText">
+      Rotate the box by dragging anywhere in the empty space. Click each face
+      to solve a hidden puzzle. When all faces are solved, a secret artefact
+      will be revealed. You can reset the orientation at any time.
+    </p>
+    <button id="resetBtn">Reset Rotation</button>
+    <button id="musicBtn">Play Music</button>
+  </div>
+
+  <!-- Certificate overlay -->
+  <div id="certificate">
+    <div class="cert-content">
+      <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
+      <h2>Certificate of Completion</h2>
+      <p>
+        You have lifted Carmilla's curse and earned a special advantage.
+        Present this certificate at the party.
       </p>
-      <button id="resetBtn">Reset Rotation</button>
-      <button id="musicBtn">Play Music</button>
+      <button id="closeCertBtn">Close</button>
     </div>
+  </div>
 
-    <!-- Certificate overlay -->
-    <div id="certificate">
-      <div class="cert-content">
-        <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
-        <h2>Certificate of Completion</h2>
-        <p>
-          You have lifted Carmilla's curse and earned a special advantage.
-          Present this certificate at the party.
-        </p>
-        <button id="closeCertBtn">Close</button>
-      </div>
-    </div>
+  <!-- Container where Three.js will inject its canvas -->
+  <div id="three-container"></div>
 
-    <!-- Three.js container -->
-    <div id="three-container"></div>
+  <!-- Background music -->
+  <audio id="bgMusic" src="background.mp3" loop></audio>
 
-    <!-- Background music -->
-    <audio id="bgMusic" src="background.mp3" loop></audio>
+  <!-- Three.js library (no OrbitControls needed) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
 
-    <!-- Load Three.js and OrbitControls from a CDN -->
-    <script src="https://unpkg.com/three@0.157.0/build/three.min.js"></script>
-    <script src="https://unpkg.com/three@0.157.0/examples/js/controls/OrbitControls.js"></script>
-    
-    <!-- Your script that sets up the Three.js scene -->
-    <script src="./script.js"></script>
-  </body>
+  <!-- Your own script to create the scene, cube, and interactions -->
+  <script src="./script.js"></script>
+</body>
 </html>
