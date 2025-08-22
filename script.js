@@ -1,112 +1,122 @@
-/*
- * script.js
- *
- * Handles user interaction for the Carmilla's Curse puzzle box.
- * Rotates a CSS 3D cube via mouse or touch, tracks solved state for each
- * face, and reveals a certificate overlay when all puzzles are solved.
- */
+// script.js for Three.js puzzle box
 
-// Elements
-const resetBtn      = document.getElementById('resetBtn');
-const musicBtn      = document.getElementById('musicBtn');
-const cube          = document.getElementById('cube');
-const viewport      = document.getElementById('viewport');
-const certificate   = document.getElementById('certificate');
-const bgMusic       = document.getElementById('bgMusic');
-const closeCertBtn  = document.getElementById('closeCertBtn');
+// HTML buttons and elements
+const resetBtn     = document.getElementById('resetBtn');
+const musicBtn     = document.getElementById('musicBtn');
+const certificate  = document.getElementById('certificate');
+const closeCertBtn = document.getElementById('closeCertBtn');
+const bgMusic      = document.getElementById('bgMusic');
 
-// Rotation state
-let rotX = -15;
-let rotY = -25;
-let dragging = false;
-let startX  = 0;
-let startY  = 0;
+// Track which faces are solved
+const solved = { front: false, back: false, left: false, right: false, top: false, bottom: false };
 
-function applyRotation() {
-  cube.style.transform = `rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+// Three.js variables
+let scene, camera, renderer, cube, controls, raycaster, mouse;
+
+// Set up the scene
+function init() {
+  const container = document.getElementById('three-container');
+  scene  = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 0, 5);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  container.appendChild(renderer.domElement);
+
+  // Load textures for each face (replace filenames if needed)
+  const loader = new THREE.TextureLoader();
+  const materials = [
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') }), // right
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') }), // left
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') }), // top
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') }), // bottom
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') }), // front
+    new THREE.MeshBasicMaterial({ map: loader.load('boxTexture.png') })  // back
+  ];
+
+  cube = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), materials);
+  scene.add(cube);
+
+  // Allow mouse rotation with damping
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping    = true;
+  controls.dampingFactor    = 0.05;
+  controls.enablePan        = false;
+  controls.rotateSpeed      = 0.5;
+  controls.autoRotate       = false;
+
+  // Raycaster for picking faces
+  raycaster = new THREE.Raycaster();
+  mouse     = new THREE.Vector2();
+  renderer.domElement.addEventListener('click', onClick);
+
+  // Handle window resize
+  window.addEventListener('resize', onWindowResize);
+  animate();
 }
 
-// Drag handlers
-function pointerDown(e) {
-  dragging = true;
-  startX = e.clientX || e.touches[0].clientX;
-  startY = e.clientY || e.touches[0].clientY;
+function onWindowResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function pointerMove(e) {
-  if (!dragging) return;
-  const x = e.clientX || e.touches[0].clientX;
-  const y = e.clientY || e.touches[0].clientY;
-  const dx = x - startX;
-  const dy = y - startY;
-  rotY += dx * 0.3;
-  rotX -= dy * 0.3;
-  applyRotation();
-  startX = x;
-  startY = y;
+// Convert intersection face index to human‑readable label
+function faceLabel(materialIndex) {
+  // material indices correspond to right, left, top, bottom, front, back
+  switch (materialIndex) {
+    case 4: return 'front';
+    case 5: return 'back';
+    case 1: return 'left';
+    case 0: return 'right';
+    case 2: return 'top';
+    case 3: return 'bottom';
+    default: return '';
+  }
 }
 
-function pointerUp() {
-  dragging = false;
-}
+// Handle cube clicks
+function onClick(event) {
+  // normalise mouse coords
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-// Register pointer events for dragging
-viewport.addEventListener('mousedown', pointerDown);
-viewport.addEventListener('touchstart', pointerDown, { passive: true });
-window.addEventListener('mousemove', pointerMove);
-window.addEventListener('touchmove', pointerMove, { passive: true });
-window.addEventListener('mouseup', pointerUp);
-window.addEventListener('touchend', pointerUp);
-
-// Track solved faces
-const solved = {
-  front: false,
-  back:  false,
-  left:  false,
-  right: false,
-  top:   false,
-  bottom:false
-};
-
-function checkCompletion() {
-  const allSolved = Object.values(solved).every(v => v);
-  if (allSolved) {
-    certificate.classList.add('show');
-    // Pause music when the certificate appears
-    if (!bgMusic.paused) {
-      bgMusic.pause();
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObject(cube);
+  if (intersects.length > 0) {
+    const faceName = faceLabel(intersects[0].face.materialIndex);
+    if (!solved[faceName]) {
+      solved[faceName] = true;
+      alert(`You solved the ${faceName} face!`);
+      // optionally dim the face to show it’s solved
+      cube.material[intersects[0].face.materialIndex].color.set(0x333333);
+      checkCompletion();
+    } else {
+      alert(`The ${faceName} face is already solved.`);
     }
   }
 }
 
-// Face click handler: marks a face as solved
-function onFaceClick(e) {
-  const face = e.currentTarget.dataset.face;
-  if (solved[face]) {
-    alert(`You've already solved the ${face} puzzle!`);
-    return;
+function checkCompletion() {
+  if (Object.values(solved).every(Boolean)) {
+    certificate.classList.add('show');
+    if (!bgMusic.paused) bgMusic.pause();
   }
-  alert(`${face.charAt(0).toUpperCase() + face.slice(1)} face puzzle solved!`);
-  solved[face] = true;
-  // Visually indicate completion (grayed out)
-  e.currentTarget.style.filter = 'grayscale(100%) brightness(0.6)';
-  checkCompletion();
-  e.stopPropagation();
 }
 
-// Attach click handlers to faces
-document.querySelectorAll('.face').forEach(face => {
-  face.addEventListener('click', onFaceClick);
-});
+// Animation loop
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
 
-// Reset rotation button
+// Button behaviour
 resetBtn.addEventListener('click', () => {
-  rotX = -15;
-  rotY = -25;
-  applyRotation();
+  controls.reset(); // resets camera rotation
 });
-
-// Toggle background music playback
 musicBtn.addEventListener('click', () => {
   if (bgMusic.paused) {
     bgMusic.play().catch(() => {});
@@ -116,22 +126,10 @@ musicBtn.addEventListener('click', () => {
     musicBtn.textContent = 'Play Music';
   }
 });
-
-// Close certificate overlay
-if (closeCertBtn) {
-  closeCertBtn.addEventListener('click', () => {
-    certificate.classList.remove('show');
-  });
-}
-
-// Initial setup on page load
-window.addEventListener('load', () => {
-  applyRotation();
-  // Attempt to auto‑play music; if blocked, default the button to Play Music
-  bgMusic.play().catch(() => {
-    musicBtn.textContent = 'Play Music';
-  });
-  if (!bgMusic.paused) {
-    musicBtn.textContent = 'Pause Music';
-  }
+closeCertBtn.addEventListener('click', () => {
+  certificate.classList.remove('show');
 });
+
+// Start everything
+init();
+
