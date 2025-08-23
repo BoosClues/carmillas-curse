@@ -1,199 +1,213 @@
-// === Carmilla's Curse - script.js (improved day/night logic) ===
+// === Carmilla's Curse - script_super_final2.js ===
+// This version includes organic geometry, border-integrated textures, a sun dial with smooth brightness transitions, and an inventory system.
 
-// HTML buttons and elements
 const resetBtn     = document.getElementById('resetBtn');
 const musicBtn     = document.getElementById('musicBtn');
 const certificate  = document.getElementById('certificate');
 const closeCertBtn = document.getElementById('closeCertBtn');
 const bgMusic      = document.getElementById('bgMusic');
-
-// Global sun dial widget
 const sunDialSlider  = document.getElementById('sunDialSlider');
 const sunDialReadout = document.getElementById('sunDialReadout');
-
-// Puzzle modal
 const puzzleModal   = document.getElementById('puzzleModal');
 const puzzleContent = document.getElementById('puzzleContent');
 const puzzleClose   = document.getElementById('puzzleCloseBtn');
+const inventoryList = document.getElementById('inventoryList');
 
-// State: which faces are solved
 const solved = { front:false, back:false, left:false, right:false, top:false, bottom:false };
+const inventory = [];
 
-// Three.js globals
 let scene, camera, renderer, cube, raycaster, mouse;
 let isDragging = false, dragMoved = false;
 let prev = { x:0, y:0 };
 let initialRotation = { x:0, y:0 };
 
-// === Init Three.js scene ===
+function applyRoundedCorners(geom, radius=0.15) {
+  const pos = geom.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i=0; i<pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const maxCoord = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
+    const t = (maxCoord - 1 + radius) / radius;
+    if (t > 0) {
+      v.multiplyScalar(1 - 0.5 * Math.min(t, 1));
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+  }
+  geom.computeVertexNormals();
+}
+
+function addChips(geom, magnitude=0.05, probability=0.4) {
+  const pos = geom.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i=0; i<pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const nearEdge = (Math.abs(Math.abs(v.x) - 1) < 0.3 || Math.abs(Math.abs(v.y) - 1) < 0.3 || Math.abs(Math.abs(v.z) - 1) < 0.3);
+    if (nearEdge && Math.random() < probability) {
+      v.x += (Math.random()-0.5)*magnitude;
+      v.y += (Math.random()-0.5)*magnitude;
+      v.z += (Math.random()-0.5)*magnitude;
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+  }
+  geom.computeVertexNormals();
+}
+
 function init() {
   const container = document.getElementById('three-container');
   scene  = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222); // contrast for dark texture
+  scene.background = new THREE.Color(0x222222);
 
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0, 5);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.style.touchAction = 'none';
-  // Add a CSS transition to the filter property so brightness changes smoothly
   renderer.domElement.style.transition = 'filter 0.8s ease';
   container.appendChild(renderer.domElement);
 
-  // Load textures for each face. A separate closed-mouth texture for daytime ensures
-  // the mouth doesn’t open until the correct conditions are met.
+  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+  scene.add(ambient);
+  const directional = new THREE.DirectionalLight(0xffffff, 0.6);
+  directional.position.set(3,3,5);
+  scene.add(directional);
+
   const loader = new THREE.TextureLoader();
-  const frontDayTexture         = loader.load('front_day.png');
-  const frontDayClosedTexture   = loader.load('front_day_closed.png');
-  const frontNightTexture       = loader.load('front_night.png');
-  const rightTexture            = loader.load('right_durian.png');
-  const leftTexture             = loader.load('left_rice.png');
-  const topTexture              = loader.load('top_alchemy.png');
-  const bottomTexture           = loader.load('bottom_mirror.png');
-  const backTexture             = loader.load('back_constellation.png');
+  const textures = {
+    frontDay:        loader.load('front_day_combined.png'),
+    frontDayClosed:  loader.load('front_day_closed_combined.png'),
+    frontNight:      loader.load('front_night_combined.png'),
+    right:           loader.load('right_durian_combined.png'),
+    left:            loader.load('left_rice_combined.png'),
+    top:             loader.load('top_alchemy_combined.png'),
+    bottom:          loader.load('bottom_mirror_combined.png'),
+    back:            loader.load('back_constellation_combined.png'),
+  };
+  window.__frontDayTexture       = textures.frontDay;
+  window.__frontDayClosedTexture = textures.frontDayClosed;
+  window.__frontNightTexture     = textures.frontNight;
 
-  // Create a materials array in the order [right, left, top, bottom, front, back].
-  // We start with the night texture on the front face; this will be swapped
-  // based on time of day and cube orientation.
+  const boxGeom = new THREE.BoxGeometry(2, 2, 2, 8, 8, 8);
+  applyRoundedCorners(boxGeom, 0.2);
+  addChips(boxGeom, 0.08, 0.3);
+
   const materials = [
-    new THREE.MeshBasicMaterial({ map: rightTexture, color: 0xffffff }), // right
-    new THREE.MeshBasicMaterial({ map: leftTexture,  color: 0xffffff }), // left
-    new THREE.MeshBasicMaterial({ map: topTexture,   color: 0xffffff }), // top
-    new THREE.MeshBasicMaterial({ map: bottomTexture,color: 0xffffff }), // bottom
-    new THREE.MeshBasicMaterial({ map: frontNightTexture, color: 0xffffff }), // front (night)
-    new THREE.MeshBasicMaterial({ map: backTexture,  color: 0xffffff })  // back
+    new THREE.MeshStandardMaterial({ map: textures.right }),
+    new THREE.MeshStandardMaterial({ map: textures.left }),
+    new THREE.MeshStandardMaterial({ map: textures.top }),
+    new THREE.MeshStandardMaterial({ map: textures.bottom }),
+    new THREE.MeshStandardMaterial({ map: textures.frontNight }),
+    new THREE.MeshStandardMaterial({ map: textures.back }),
   ];
-
-  // Expose the front textures globally so the puzzle logic can swap them.
-  window.__frontDayTexture        = frontDayTexture;
-  window.__frontDayClosedTexture  = frontDayClosedTexture;
-  window.__frontNightTexture      = frontNightTexture;
-
-  cube = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), materials);
+  cube = new THREE.Mesh(boxGeom, materials);
   scene.add(cube);
 
-  // Save initial rotation
   initialRotation.x = cube.rotation.x;
   initialRotation.y = cube.rotation.y;
 
-  // Raycaster & mouse
   raycaster = new THREE.Raycaster();
-  mouse = new THREE.Vector2();
+  mouse     = new THREE.Vector2();
 
-  // Rotation (mouse/touch)
   const c = renderer.domElement;
-  c.addEventListener('mousedown', onPointerDown);
-  c.addEventListener('mousemove', onPointerMove);
-  c.addEventListener('mouseup',   onPointerUp);
-  c.addEventListener('mouseleave',onPointerUp);
-
-  c.addEventListener('touchstart', (e)=>{
+  c.addEventListener('mousedown', e => { isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; });
+  c.addEventListener('mousemove', e => {
+    if(!isDragging) return;
+    cube.rotation.y += (e.clientX - prev.x) * 0.01;
+    cube.rotation.x += (e.clientY - prev.y) * 0.01;
+    prev.x = e.clientX; prev.y = e.clientY;
+    dragMoved = true;
+  });
+  c.addEventListener('mouseup',   () => { isDragging=false; });
+  c.addEventListener('mouseleave',() => { isDragging=false; });
+  c.addEventListener('touchstart', e => {
     if (!e.touches.length) return;
     isDragging=true; dragMoved=false;
     prev.x = e.touches[0].clientX; prev.y = e.touches[0].clientY;
-  }, { passive:true });
-
-  c.addEventListener('touchmove', (e)=>{
-    if (!isDragging || !e.touches.length) return;
+  }, {passive:true});
+  c.addEventListener('touchmove', e => {
+    if(!isDragging || !e.touches.length) return;
     const x = e.touches[0].clientX, y = e.touches[0].clientY;
-    const dx = x - prev.x, dy = y - prev.y;
-    cube.rotation.y += dx * 0.01;
-    cube.rotation.x += dy * 0.01;
-    prev.x = x; prev.y = y; dragMoved = true;
-  }, { passive:true });
-
-  c.addEventListener('touchend', ()=>{ isDragging=false; });
-
-  // Click → open puzzle (ignore if you were dragging)
-  c.addEventListener('click', (event)=>{
+    cube.rotation.y += (x - prev.x)*0.01;
+    cube.rotation.x += (y - prev.y)*0.01;
+    prev.x = x; prev.y = y;
+    dragMoved = true;
+  }, {passive:true});
+  c.addEventListener('touchend', () => { isDragging=false; });
+  c.addEventListener('click', event => {
     if (dragMoved) { dragMoved=false; return; }
-    const faceName = pickFace(event);
-    if (faceName) openPuzzle(faceName);
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width)*2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height)*2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObject(cube);
+    if (!hits.length) return;
+    const faceIndex = hits[0].faceIndex;
+    const matIdx = materialIndexFromFaceIndex(cube.geometry, faceIndex);
+    const faceName = faceLabelFromMaterialIndex(matIdx);
+    openPuzzle(faceName);
   });
 
-  // Resize responsiveness
-  window.addEventListener('resize', resizeCamera);
-  resizeCamera();
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.position.z = (window.innerWidth < 600) ? 7 : 5;
+  });
 
-  // Buttons
-  resetBtn.addEventListener('click', ()=>{
+  resetBtn.addEventListener('click', () => {
     cube.rotation.x = initialRotation.x;
     cube.rotation.y = initialRotation.y;
   });
-  musicBtn.addEventListener('click', ()=>{
+  musicBtn.addEventListener('click', () => {
     if (bgMusic.paused) { bgMusic.play().catch(()=>{}); musicBtn.textContent='Pause Music'; }
     else { bgMusic.pause(); musicBtn.textContent='Play Music'; }
   });
-  closeCertBtn.addEventListener('click', ()=> certificate.classList.remove('show'));
+  closeCertBtn.addEventListener('click', () => certificate.classList.remove('show'));
   puzzleClose.addEventListener('click', closePuzzle);
 
-  // Sun dial: update brightness and trigger front texture selection based on the hour.
-  function updateDayNightGlobal(){
-    if (!sunDialSlider) return;
+  function updateSun() {
     const hVal = parseFloat(sunDialSlider.value);
-    // Update readout (HH:MM)
     const hh = String(Math.floor(hVal)).padStart(2,'0');
     const mm = String(Math.round((hVal % 1) * 60)).padStart(2,'0');
-    if (sunDialReadout) sunDialReadout.textContent = `Sun: ${hh}:${mm}`;
-    // Compute brightness: dark at midnight, bright at noon (peak around midday). Use sine curve.
-    // This will vary between 0.5 and 1.5 across 24h.
-    const brightness = 0.5 + 0.5 * Math.sin((hVal / 24) * Math.PI);
+    sunDialReadout.textContent = `Sun: ${hh}:${mm}`;
+    const brightness = 0.7 + 0.6 * Math.sin((hVal / 24) * Math.PI);
     renderer.domElement.style.filter = `brightness(${brightness.toFixed(2)})`;
-    // Update the front face texture based on time and orientation
     updateFrontFaceTexture();
   }
+  sunDialSlider.addEventListener('input', updateSun);
+  updateSun();
 
-  // Attach the update function to slider input and call once
-  if (sunDialSlider) {
-    sunDialSlider.addEventListener('input', updateDayNightGlobal);
-    updateDayNightGlobal();
+  function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
   }
-
   animate();
 }
 
-function resizeCamera(){
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  // Pull back on narrow screens so the cube isn't huge on mobile
-  camera.position.z = (window.innerWidth < 600) ? 7 : 5;
+function faceLabelFromMaterialIndex(i) {
+  return i===4?'front' : i===5?'back' : i===1?'left' : i===0?'right' : i===2?'top' : 'bottom';
 }
 
-function onPointerDown(e){ isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; }
-function onPointerMove(e){ if(!isDragging) return; const dx=e.clientX-prev.x, dy=e.clientY-prev.y; cube.rotation.y += dx*0.01; cube.rotation.x += dy*0.01; prev.x=e.clientX; prev.y=e.clientY; dragMoved=true; }
-function onPointerUp(){ isDragging=false; }
-
-function animate(){
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
-  // Update the front texture based on current time and orientation
-  updateFrontFaceTexture();
+function materialIndexFromFaceIndex(geom, faceIndex) {
+  const triStart = faceIndex * 3;
+  for (const g of geom.groups) {
+    if (triStart >= g.start && triStart < g.start + g.count) return g.materialIndex;
+  }
+  return 0;
 }
 
-// Update the front face texture based on the sun dial hour and cube orientation.
-// The vampire's eyes remain closed during the day and open at night.  Her mouth
-// opens only when it is midday (11–13) and the front face is rotated upside down.
-function updateFrontFaceTexture(){
-  // Ensure required objects exist
-  if (!cube || !sunDialSlider) return;
-  // Do not update the front face if it's already solved
-  if (solved && solved.front) return;
+function updateFrontFaceTexture() {
+  if (solved.front) return;
   const hVal = parseFloat(sunDialSlider.value);
-  // Define day as morning through late afternoon (roughly 6–18), and midday as 11–13 for puzzle logic
   const daytime = (hVal >= 6 && hVal <= 18);
   const midday  = (hVal >= 11 && hVal <= 13);
-  // Compute orientation: front normal and world down vector
   const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
   const facingDown = frontNormal.dot(new THREE.Vector3(0,-1,0)) > 0.95;
   let newMap;
   if (!daytime) {
-    // Night: eyes open, mouth closed
-    newMap = window.__frontNightTexture;
+    newMap = __frontNightTexture;
   } else {
-    // Day: eyes closed. Mouth opens only during the midday window and when the face is rotated upside down.
-    newMap = (midday && facingDown) ? window.__frontDayTexture : window.__frontDayClosedTexture;
+    newMap = (midday && facingDown) ? __frontDayTexture : __frontDayClosedTexture;
   }
   if (cube.material[4].map !== newMap) {
     cube.material[4].map = newMap;
@@ -201,60 +215,39 @@ function updateFrontFaceTexture(){
   }
 }
 
-// === Picking helpers ===
-function faceLabelFromMaterialIndex(i){
-  // Our materials order: [right, left, top, bottom, front, back]
-  return (i===4?'front': i===5?'back': i===1?'left': i===0?'right': i===2?'top': i===3?'bottom':'');
-}
-function materialIndexFromFaceIndex(geom, faceIndex){
-  const triStart = faceIndex * 3;
-  for (let g of geom.groups) { if (triStart >= g.start && triStart < g.start+g.count) return g.materialIndex; }
-  return 0;
-}
-function pickFace(event){
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObject(cube);
-  if (!hits.length) return '';
-  const matIdx = materialIndexFromFaceIndex(cube.geometry, hits[0].faceIndex);
-  return faceLabelFromMaterialIndex(matIdx);
-}
-
-// === Modal helpers ===
-function openPuzzle(face){
-  // Route each face to a puzzle
-  if (solved[face]) { toast(`That panel is already unlocked.`); return; }
-  if (face==='front') renderTikiPuzzle(face);
-  else if (face==='right') renderDurianPuzzle(face);
-  else if (face==='back') renderConstellationPuzzle(face);
-  else if (face==='left') renderRicePuzzle(face);           // scaffold
-  else if (face==='top') renderAlchemyPuzzle(face);         // scaffold
-  else if (face==='bottom') renderMirrorLightPuzzle(face);  // scaffold
+function openPuzzle(face) {
+  if (solved[face]) { toast('That panel is already unlocked.'); return; }
+  if (face === 'front') renderTikiPuzzle(face);
+  else if (face === 'right') renderDurianPuzzle(face);
+  else if (face === 'back') renderConstellationPuzzle(face);
+  else if (face === 'left') renderRicePuzzle(face);
+  else if (face === 'top') renderAlchemyPuzzle(face);
+  else if (face === 'bottom') renderMirrorLightPuzzle(face);
   puzzleModal.classList.add('show');
 }
-function closePuzzle(){
+
+function closePuzzle() {
   puzzleModal.classList.remove('show');
   puzzleContent.innerHTML = '';
 }
-function solveFace(face, message){
-  solved[face]=true;
+
+function solveFace(face, message) {
+  solved[face] = true;
   toast(message || `You unlocked the ${face} panel.`);
-  // Dim that face's material colour a bit as a visual indicator
-  const matIndex = (face==='front'?4: face==='back'?5: face==='left'?1: face==='right'?0: face==='top'?2: 3);
-  cube.material[matIndex].color.set(0x333333);
+  const idx = (face==='front'?4: face==='back'?5: face==='left'?1: face==='right'?0: face==='top'?2:3);
+  cube.material[idx].color.set(0x444444);
   closePuzzle();
   checkCompletion();
 }
-function checkCompletion(){
+
+function checkCompletion() {
   if (Object.values(solved).every(Boolean)) {
     certificate.classList.add('show');
     if (!bgMusic.paused) bgMusic.pause();
   }
 }
-function toast(msg){
-  // Simple inline toast in puzzle card footer
+
+function toast(msg) {
   const div = document.createElement('div');
   div.textContent = msg;
   div.style.marginTop = '0.5rem';
@@ -262,34 +255,37 @@ function toast(msg){
   puzzleContent.appendChild(div);
 }
 
-// === PUZZLE 1: Tiki Vampire & Day‑Sleep Key ===
-function renderTikiPuzzle(face){
+function renderTikiPuzzle(face) {
   puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">The Wrought‑Iron Key</h3>
-    <p style="margin:0 0 0.5rem 0">
-      When does the tiki vampire sleep? <em>By day</em>, and <em>upside down</em>.
-      Rotate this face so it points to the ground, then adjust the sun dial (upper right) to midday.
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Wrought‑Iron Key</h3>
+    <p style="margin:0 0 0.5rem">
+      The tiki vampire sleeps by day and wakes by night. To claim the key,
+      rotate this panel until it points downward, then adjust the sun dial
+      (upper right) to midday.
     </p>
-    <div class="puzzle-actions">
-      <button id="tryKeyBtn">Try the key</button>
-    </div>
+    <div class="puzzle-actions"><button id="tryKeyBtn">Try the key</button></div>
   `;
-
-  // When the player attempts to take the key, check orientation and time using the global sunDialSlider
-  document.getElementById('tryKeyBtn').addEventListener('click', ()=>{
-    // Determine if the front face is pointing downwards
-    const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
-    const down = new THREE.Vector3(0,-1,0);
-    const facingDown = frontNormal.dot(down) > 0.95;
-    // Use the global sun dial value to check midday
-    const hVal = sunDialSlider ? parseFloat(sunDialSlider.value) : 0;
+  document.getElementById('tryKeyBtn').addEventListener('click', () => {
+    const hVal = parseFloat(sunDialSlider.value);
     const midday = (hVal >= 11 && hVal <= 13);
-    if (facingDown && midday) {
-      if (confirm('Do you dare to take the key?')) {
-        solveFace(face, 'With a dull clink, you grasp the iron key.');
-      } else {
-        toast('You hesitate, feeling the vampire’s gaze linger…');
-      }
+    const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
+    const facingDown = frontNormal.dot(new THREE.Vector3(0,-1,0)) > 0.95;
+    if (midday && facingDown) {
+      puzzleContent.innerHTML = `
+        <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Wrought‑Iron Key</h3>
+        <p style="margin:0 0 0.5rem">A small key glints within the vampire's mouth.</p>
+        <div class="puzzle-actions" style="justify-content:center;">
+          <svg id="collectKey" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48" height="48" style="cursor:pointer;fill:var(--deep-red)">
+            <path d="M32 8a12 12 0 100 24 12 12 0 000-24zm0 4a8 8 0 110 16 8 8 0 010-16zm14.121 23.879l-5.657 5.657L44 43.071 49.071 38l-2.95-2.95zM14.05 50.536l5.657-5.657L22.414 44l-5.657-5.657-5.657 5.657zm9.899-9.9L40.243 24.343l-5.657-5.657L18.292 34.979l5.657 5.657z"/>
+          </svg>
+        </div>
+        <p style="margin-top:0.5rem;font-size:0.9rem">Click the key to collect it.</p>
+      `;
+      document.getElementById('collectKey').addEventListener('click', () => {
+        inventory.push('Iron Key');
+        inventoryList.innerHTML = inventory.map(item => `<li>${item}</li>`).join('');
+        solveFace(face, 'The iron key slides free and disappears into your pocket.');
+      });
     } else {
       puzzleContent.parentElement.classList.remove('shake');
       void puzzleContent.parentElement.offsetWidth;
@@ -299,8 +295,165 @@ function renderTikiPuzzle(face){
   });
 }
 
-// The other puzzle functions (Durian, Constellation, Rice, Alchemy, Mirror & Light) remain unchanged.
-// … (keep the rest of your puzzle code here)
+function renderDurianPuzzle(face) {
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Warding Fruit</h3>
+    <p style="margin:0 0 0.5rem">Choose the fruit that wards <em>tropical</em> vampires. (Choose carefully.)</p>
+    <div id="fruitGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin:0.5rem 0;">
+      ${['Garlic','Mango','Durian','Pineapple','Lychee','Starfruit'].map(name => `
+        <button class="fruitBtn" data-name="${name}" style="padding:0.8rem 0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px;cursor:pointer;">
+          ${name}
+        </button>`).join('')}
+    </div>
+    <div class="puzzle-actions"><button id="wardBtn" disabled>Ward this panel</button></div>
+  `;
+  let chosen = '';
+  const buttons = [...document.querySelectorAll('.fruitBtn')];
+  buttons.forEach(b => {
+    b.addEventListener('click', () => {
+      buttons.forEach(x => x.style.outline='none');
+      b.style.outline = `2px solid var(--deep-red)`;
+      chosen = b.dataset.name;
+      document.getElementById('wardBtn').disabled = false;
+    });
+  });
+  document.getElementById('wardBtn').addEventListener('click', () => {
+    if (chosen === 'Durian') {
+      solveFace(face, 'The stench is salvation—the ward holds.');
+    } else {
+      puzzleContent.parentElement.classList.remove('shake');
+      void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('A sour choice. The ward fails.');
+    }
+  });
+}
 
-// Start
+function renderConstellationPuzzle(face) {
+  const unlocked = {
+    r: solved.front, rot: solved.right,
+    spread: solved.left, inner: solved.top, off: solved.bottom
+  };
+  const lockIcon = ok => ok ? '' : '🔒';
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Starlit Prophecy</h3>
+    <p style="margin:0 0 0.5rem">Gather the stars into the hibiscus.</p>
+    <canvas id="starCanvas" width="360" height="240" style="width:100%;background:#0e0e0e;border:1px solid #222"></canvas>
+    <div style="margin-top:0.5rem;display:grid;grid-template-columns:1fr 4fr;gap:0.5rem;align-items:center;">
+      <label>Radius ${lockIcon(unlocked.r)}</label>      <input id="slR" type="range" min="10" max="100" value="40" ${unlocked.r?'':'disabled'}>
+      <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot?'':'disabled'}>
+      <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80" value="35" ${unlocked.spread?'':'disabled'}>
+      <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50" value="18" ${unlocked.inner?'':'disabled'}>
+      <label>Offset ${lockIcon(unlocked.off)}</label> <input id="slOff" type="range" min="-40" max="40" value="0" ${unlocked.off?'':'disabled'}>
+    </div>
+    <div class="puzzle-actions"><button id="bindStarsBtn">Bind the stars</button></div>
+  `;
+  const cvs = document.getElementById('starCanvas');
+  const ctx = cvs.getContext('2d');
+  const sliders = ['slR','slRot','slSpread','slInner','slOff'].map(id => document.getElementById(id));
+  function draw() {
+    const [R, rot, spread, inner, off] = sliders.map(s => parseFloat(s?.value || 0));
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    ctx.fillStyle = '#bbb';
+    for(let i=0;i<5;i++){
+      const a=(i*(Math.PI*2/5)) + (rot*Math.PI/180);
+      const r = R + (i%2===0? spread:-inner);
+      const x = cvs.width/2 + Math.cos(a)*r;
+      const y = cvs.height/2 + Math.sin(a)*(r+off);
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+    }
+  }
+  sliders.forEach(s => s && s.addEventListener('input', draw));
+  draw();
+  const target = { R:50, rot:25, spread:42, inner:15, off:6 };
+  document.getElementById('bindStarsBtn').addEventListener('click', () => {
+    const vals = {
+      R: parseFloat(sliders[0]?.value || 0),
+      rot: parseFloat(sliders[1]?.value || 0),
+      spread: parseFloat(sliders[2]?.value || 0),
+      inner: parseFloat(sliders[3]?.value || 0),
+      off: parseFloat(sliders[4]?.value || 0),
+    };
+    const tol = (a,b,t) => Math.abs(a-b) <= t;
+    const ok =
+      tol(vals.R, target.R, 4) &&
+      tol(vals.rot, target.rot, 4) &&
+      tol(vals.spread, target.spread, 4) &&
+      tol(vals.inner, target.inner, 3) &&
+      tol(vals.off, target.off, 3);
+    if (ok) solveFace(face,'The flower blooms among the stars.');
+    else {
+      puzzleContent.parentElement.classList.remove('shake');
+      void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('The stars resist your hand.');
+    }
+  });
+}
+
+function renderRicePuzzle(face) {
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Arithmomania</h3>
+    <p>Enter the total grains spilled across all panels:</p>
+    <input id="riceInput" type="number" inputmode="numeric" style="width:100%;padding:0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px" placeholder="Total grains">
+    <div class="puzzle-actions"><button id="riceCheckBtn">Open</button></div>
+  `;
+  document.getElementById('riceCheckBtn').addEventListener('click', () => {
+    const correctTotal = 123;
+    const val = parseInt(document.getElementById('riceInput').value,10);
+    if (val === correctTotal) solveFace(face,'The panel slides with a soft sigh.');
+    else {
+      puzzleContent.parentElement.classList.remove('shake');
+      void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('Grains scattered from your hand…');
+    }
+  });
+}
+
+function renderAlchemyPuzzle(face) {
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Blood Alchemy</h3>
+    <p>Mix the draught (2:3:1): Garlic / Moonlight / Rose.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;align-items:center;margin-top:0.5rem">
+      <label>Garlic</label>   <input id="a1" type="range" min="0" max="5" value="0">
+      <label>Moonlight</label><input id="a2" type="range" min="0" max="5" value="0">
+      <label>Rose</label>     <input id="a3" type="range" min="0" max="5" value="0">
+    </div>
+    <div id="brew" style="margin:0.75rem 0;height:22px;background:#111;border:1px solid #333;border-radius:3px;"></div>
+    <div class="puzzle-actions"><button id="brewBtn">Brew</button></div>
+  `;
+  const bars = [document.getElementById('a1'),document.getElementById('a2'),document.getElementById('a3')];
+  const brew = document.getElementById('brew');
+  bars.forEach(b => b.addEventListener('input', () => {
+    const [g,m,r] = bars.map(x=> +x.value);
+    const rr = Math.min(255, 80 + r*30 + m*10);
+    const gg = Math.min(255, 10 + m*25);
+    const bb = Math.min(255, 10 + g*10);
+    brew.style.background = `rgb(${rr},${gg},${bb})`;
+  }));
+  document.getElementById('brewBtn').addEventListener('click', () => {
+    const [g,m,r] = bars.map(x=> +x.value);
+    if (g === 2 && m === 3 && r === 1) solveFace(face,'The draught turns crimson and smokes.');
+    else {
+      puzzleContent.parentElement.classList.remove('shake');
+      void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('The mixture curdles.');
+    }
+  });
+}
+
+function renderMirrorLightPuzzle(face) {
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Mirror & Light</h3>
+    <p>A beam must reach the sensor without touching a vampire. (Prototype to follow.)</p>
+    <div class="puzzle-actions"><button id="fakeSolve">(Dev) Solve</button></div>
+  `;
+  document.getElementById('fakeSolve').addEventListener('click', () => {
+    solveFace(face,'Mirrors click; the beam finds its mark.');
+  });
+}
+
+// Kick things off
 init();
