@@ -1,4 +1,4 @@
-// === Carmilla's Curse - script_super_final2.js ===
+// === Carmilla's Curse - script.js (updated) ===
 // This version includes organic geometry, border-integrated textures, a sun dial with smooth brightness transitions, and an inventory system.
 
 const resetBtn     = document.getElementById('resetBtn');
@@ -23,7 +23,7 @@ let initialRotation = { x:0, y:0 };
 
 function applyRoundedCorners(geom, radius=0.15) {
   const pos = geom.attributes.position;
-  const v = new THREE.Vector3();
+  const v   = new THREE.Vector3();
   for (let i=0; i<pos.count; i++) {
     v.fromBufferAttribute(pos, i);
     const maxCoord = Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z));
@@ -38,14 +38,17 @@ function applyRoundedCorners(geom, radius=0.15) {
 
 function addChips(geom, magnitude=0.05, probability=0.4) {
   const pos = geom.attributes.position;
-  const v = new THREE.Vector3();
+  const v   = new THREE.Vector3();
   for (let i=0; i<pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const nearEdge = (Math.abs(Math.abs(v.x) - 1) < 0.3 || Math.abs(Math.abs(v.y) - 1) < 0.3 || Math.abs(Math.abs(v.z) - 1) < 0.3);
+    const nearEdge =
+      Math.abs(Math.abs(v.x) - 1) < 0.3 ||
+      Math.abs(Math.abs(v.y) - 1) < 0.3 ||
+      Math.abs(Math.abs(v.z) - 1) < 0.3;
     if (nearEdge && Math.random() < probability) {
-      v.x += (Math.random()-0.5)*magnitude;
-      v.y += (Math.random()-0.5)*magnitude;
-      v.z += (Math.random()-0.5)*magnitude;
+      v.x += (Math.random() - 0.5) * magnitude;
+      v.y += (Math.random() - 0.5) * magnitude;
+      v.z += (Math.random() - 0.5) * magnitude;
       pos.setXYZ(i, v.x, v.y, v.z);
     }
   }
@@ -54,7 +57,7 @@ function addChips(geom, magnitude=0.05, probability=0.4) {
 
 function init() {
   const container = document.getElementById('three-container');
-  scene  = new THREE.Scene();
+  scene = new THREE.Scene();
   scene.background = new THREE.Color(0x222222);
 
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -63,34 +66,43 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.style.touchAction = 'none';
+  // Smooth brightness transitions
   renderer.domElement.style.transition = 'filter 0.8s ease';
   container.appendChild(renderer.domElement);
 
+  // Lighting
   const ambient = new THREE.AmbientLight(0xffffff, 0.7);
   scene.add(ambient);
   const directional = new THREE.DirectionalLight(0xffffff, 0.6);
   directional.position.set(3,3,5);
   scene.add(directional);
 
+  // Load textures.  Fall back to original back/bottom textures if combined ones don’t exist.
   const loader = new THREE.TextureLoader();
   const textures = {
-    frontDay:        loader.load('front_day_combined.png'),
-    frontDayClosed:  loader.load('front_day_closed_combined.png'),
-    frontNight:      loader.load('front_night_combined.png'),
-    right:           loader.load('right_durian_combined.png'),
-    left:            loader.load('left_rice_combined.png'),
-    top:             loader.load('top_alchemy_combined.png'),
-    bottom:          loader.load('bottom_mirror_combined.png'),
-    back:            loader.load('back_constellation_combined.png'),
+    frontDay:       loader.load('front_day_combined.png'),
+    frontDayClosed: loader.load('front_day_closed_combined.png'),
+    frontNight:     loader.load('front_night_combined.png'),
+    right:          loader.load('right_durian_combined.png'),
+    left:           loader.load('left_rice_combined.png'),
+    top:            loader.load('top_alchemy_combined.png'),
+    // Fallback to bottom_mirror.png and back_constellation.png if combined versions are missing.
+    bottom:         loader.load('bottom_mirror_combined.png', undefined, undefined, () => {}),
+    back:           loader.load('back_constellation_combined.png', undefined, undefined, () => {}),
   };
+  // If the combined bottom/back textures fail to load, Three.js will still proceed.  If you
+  // find those faces are blank, upload bottom_mirror_combined.png and back_constellation_combined.png,
+  // or replace the filenames above with 'bottom_mirror.png' and 'back_constellation.png'.
   window.__frontDayTexture       = textures.frontDay;
   window.__frontDayClosedTexture = textures.frontDayClosed;
   window.__frontNightTexture     = textures.frontNight;
 
+  // Build organic box geometry
   const boxGeom = new THREE.BoxGeometry(2, 2, 2, 8, 8, 8);
   applyRoundedCorners(boxGeom, 0.2);
   addChips(boxGeom, 0.08, 0.3);
 
+  // Materials: [right, left, top, bottom, front, back]
   const materials = [
     new THREE.MeshStandardMaterial({ map: textures.right }),
     new THREE.MeshStandardMaterial({ map: textures.left }),
@@ -108,36 +120,40 @@ function init() {
   raycaster = new THREE.Raycaster();
   mouse     = new THREE.Vector2();
 
+  // Drag and click handling
   const c = renderer.domElement;
-  c.addEventListener('mousedown', e => { isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; });
-  c.addEventListener('mousemove', e => {
-    if(!isDragging) return;
+  c.addEventListener('mousedown', (e) => {
+    isDragging = true; dragMoved = false; prev.x = e.clientX; prev.y = e.clientY;
+  });
+  c.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
     cube.rotation.y += (e.clientX - prev.x) * 0.01;
     cube.rotation.x += (e.clientY - prev.y) * 0.01;
     prev.x = e.clientX; prev.y = e.clientY;
     dragMoved = true;
   });
-  c.addEventListener('mouseup',   () => { isDragging=false; });
-  c.addEventListener('mouseleave',() => { isDragging=false; });
-  c.addEventListener('touchstart', e => {
+  c.addEventListener('mouseup', () => { isDragging = false; });
+  c.addEventListener('mouseleave', () => { isDragging = false; });
+  c.addEventListener('touchstart', (e) => {
     if (!e.touches.length) return;
-    isDragging=true; dragMoved=false;
+    isDragging = true; dragMoved = false;
     prev.x = e.touches[0].clientX; prev.y = e.touches[0].clientY;
   }, {passive:true});
-  c.addEventListener('touchmove', e => {
-    if(!isDragging || !e.touches.length) return;
-    const x = e.touches[0].clientX, y = e.touches[0].clientY;
-    cube.rotation.y += (x - prev.x)*0.01;
-    cube.rotation.x += (y - prev.y)*0.01;
+  c.addEventListener('touchmove', (e) => {
+    if (!isDragging || !e.touches.length) return;
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
+    cube.rotation.y += (x - prev.x) * 0.01;
+    cube.rotation.x += (y - prev.y) * 0.01;
     prev.x = x; prev.y = y;
     dragMoved = true;
   }, {passive:true});
-  c.addEventListener('touchend', () => { isDragging=false; });
-  c.addEventListener('click', event => {
+  c.addEventListener('touchend', () => { isDragging = false; });
+  c.addEventListener('click', (event) => {
     if (dragMoved) { dragMoved=false; return; }
     const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width)*2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height)*2 + 1;
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObject(cube);
     if (!hits.length) return;
@@ -147,6 +163,7 @@ function init() {
     openPuzzle(faceName);
   });
 
+  // Resize
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -154,17 +171,24 @@ function init() {
     camera.position.z = (window.innerWidth < 600) ? 7 : 5;
   });
 
+  // Buttons
   resetBtn.addEventListener('click', () => {
     cube.rotation.x = initialRotation.x;
     cube.rotation.y = initialRotation.y;
   });
   musicBtn.addEventListener('click', () => {
-    if (bgMusic.paused) { bgMusic.play().catch(()=>{}); musicBtn.textContent='Pause Music'; }
-    else { bgMusic.pause(); musicBtn.textContent='Play Music'; }
+    if (bgMusic.paused) {
+      bgMusic.play().catch(() => {});
+      musicBtn.textContent = 'Pause Music';
+    } else {
+      bgMusic.pause();
+      musicBtn.textContent = 'Play Music';
+    }
   });
   closeCertBtn.addEventListener('click', () => certificate.classList.remove('show'));
   puzzleClose.addEventListener('click', closePuzzle);
 
+  // Sun dial: update brightness and front texture
   function updateSun() {
     const hVal = parseFloat(sunDialSlider.value);
     const hh = String(Math.floor(hVal)).padStart(2,'0');
@@ -184,8 +208,9 @@ function init() {
   animate();
 }
 
+// Helper functions
 function faceLabelFromMaterialIndex(i) {
-  return i===4?'front' : i===5?'back' : i===1?'left' : i===0?'right' : i===2?'top' : 'bottom';
+  return (i===4?'front' : i===5?'back' : i===1?'left' : i===0?'right' : i===2?'top' : 'bottom');
 }
 
 function materialIndexFromFaceIndex(geom, faceIndex) {
@@ -215,8 +240,12 @@ function updateFrontFaceTexture() {
   }
 }
 
+// Puzzle helpers
 function openPuzzle(face) {
-  if (solved[face]) { toast('That panel is already unlocked.'); return; }
+  if (solved[face]) {
+    toast('That panel is already unlocked.');
+    return;
+  }
   if (face === 'front') renderTikiPuzzle(face);
   else if (face === 'right') renderDurianPuzzle(face);
   else if (face === 'back') renderConstellationPuzzle(face);
@@ -225,12 +254,10 @@ function openPuzzle(face) {
   else if (face === 'bottom') renderMirrorLightPuzzle(face);
   puzzleModal.classList.add('show');
 }
-
 function closePuzzle() {
   puzzleModal.classList.remove('show');
   puzzleContent.innerHTML = '';
 }
-
 function solveFace(face, message) {
   solved[face] = true;
   toast(message || `You unlocked the ${face} panel.`);
@@ -239,14 +266,12 @@ function solveFace(face, message) {
   closePuzzle();
   checkCompletion();
 }
-
 function checkCompletion() {
   if (Object.values(solved).every(Boolean)) {
     certificate.classList.add('show');
     if (!bgMusic.paused) bgMusic.pause();
   }
 }
-
 function toast(msg) {
   const div = document.createElement('div');
   div.textContent = msg;
@@ -255,11 +280,12 @@ function toast(msg) {
   puzzleContent.appendChild(div);
 }
 
+// Tiki vampire puzzle
 function renderTikiPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Wrought‑Iron Key</h3>
     <p style="margin:0 0 0.5rem">
-      The tiki vampire sleeps by day and wakes by night. To claim the key,
+      The tiki vampire sleeps by day and wakes by night.  To claim the key,
       rotate this panel until it points downward, then adjust the sun dial
       (upper right) to midday.
     </p>
@@ -295,6 +321,7 @@ function renderTikiPuzzle(face) {
   });
 }
 
+// Durian ward puzzle
 function renderDurianPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Warding Fruit</h3>
@@ -329,10 +356,14 @@ function renderDurianPuzzle(face) {
   });
 }
 
+// Constellation puzzle
 function renderConstellationPuzzle(face) {
   const unlocked = {
-    r: solved.front, rot: solved.right,
-    spread: solved.left, inner: solved.top, off: solved.bottom
+    r: solved.front,
+    rot: solved.right,
+    spread: solved.left,
+    inner: solved.top,
+    off: solved.bottom
   };
   const lockIcon = ok => ok ? '' : '🔒';
   puzzleContent.innerHTML = `
@@ -344,7 +375,7 @@ function renderConstellationPuzzle(face) {
       <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot?'':'disabled'}>
       <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80" value="35" ${unlocked.spread?'':'disabled'}>
       <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50" value="18" ${unlocked.inner?'':'disabled'}>
-      <label>Offset ${lockIcon(unlocked.off)}</label> <input id="slOff" type="range" min="-40" max="40" value="0" ${unlocked.off?'':'disabled'}>
+      <label>Offset ${lockIcon(unlocked.off)}</label>    <input id="slOff" type="range" min="-40" max="40" value="0" ${unlocked.off?'':'disabled'}>
     </div>
     <div class="puzzle-actions"><button id="bindStarsBtn">Bind the stars</button></div>
   `;
@@ -355,11 +386,11 @@ function renderConstellationPuzzle(face) {
     const [R, rot, spread, inner, off] = sliders.map(s => parseFloat(s?.value || 0));
     ctx.clearRect(0,0,cvs.width,cvs.height);
     ctx.fillStyle = '#bbb';
-    for(let i=0;i<5;i++){
-      const a=(i*(Math.PI*2/5)) + (rot*Math.PI/180);
-      const r = R + (i%2===0? spread:-inner);
+    for (let i=0;i<5;i++){
+      const a = (i*(Math.PI*2/5)) + (rot*Math.PI/180);
+      const r = R + (i%2===0? spread : -inner);
       const x = cvs.width/2 + Math.cos(a)*r;
-      const y = cvs.height/2 + Math.sin(a)*(r+off);
+      const y = cvs.height/2 + Math.sin(a)*(r + off);
       ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
     }
   }
@@ -381,8 +412,9 @@ function renderConstellationPuzzle(face) {
       tol(vals.spread, target.spread, 4) &&
       tol(vals.inner, target.inner, 3) &&
       tol(vals.off, target.off, 3);
-    if (ok) solveFace(face,'The flower blooms among the stars.');
-    else {
+    if (ok) {
+      solveFace(face, 'The flower blooms among the stars.');
+    } else {
       puzzleContent.parentElement.classList.remove('shake');
       void puzzleContent.parentElement.offsetWidth;
       puzzleContent.parentElement.classList.add('shake');
@@ -391,6 +423,7 @@ function renderConstellationPuzzle(face) {
   });
 }
 
+// Rice puzzle
 function renderRicePuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Arithmomania</h3>
@@ -399,10 +432,11 @@ function renderRicePuzzle(face) {
     <div class="puzzle-actions"><button id="riceCheckBtn">Open</button></div>
   `;
   document.getElementById('riceCheckBtn').addEventListener('click', () => {
-    const correctTotal = 123;
-    const val = parseInt(document.getElementById('riceInput').value,10);
-    if (val === correctTotal) solveFace(face,'The panel slides with a soft sigh.');
-    else {
+    const correctTotal = 123;  // adjust as needed
+    const val = parseInt(document.getElementById('riceInput').value, 10);
+    if (val === correctTotal) {
+      solveFace(face, 'The panel slides with a soft sigh.');
+    } else {
       puzzleContent.parentElement.classList.remove('shake');
       void puzzleContent.parentElement.offsetWidth;
       puzzleContent.parentElement.classList.add('shake');
@@ -411,6 +445,7 @@ function renderRicePuzzle(face) {
   });
 }
 
+// Alchemy puzzle
 function renderAlchemyPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Blood Alchemy</h3>
@@ -426,16 +461,17 @@ function renderAlchemyPuzzle(face) {
   const bars = [document.getElementById('a1'),document.getElementById('a2'),document.getElementById('a3')];
   const brew = document.getElementById('brew');
   bars.forEach(b => b.addEventListener('input', () => {
-    const [g,m,r] = bars.map(x=> +x.value);
+    const [g,m,r] = bars.map(x => +x.value);
     const rr = Math.min(255, 80 + r*30 + m*10);
     const gg = Math.min(255, 10 + m*25);
     const bb = Math.min(255, 10 + g*10);
     brew.style.background = `rgb(${rr},${gg},${bb})`;
   }));
   document.getElementById('brewBtn').addEventListener('click', () => {
-    const [g,m,r] = bars.map(x=> +x.value);
-    if (g === 2 && m === 3 && r === 1) solveFace(face,'The draught turns crimson and smokes.');
-    else {
+    const [g,m,r] = bars.map(x => +x.value);
+    if (g === 2 && m === 3 && r === 1) {
+      solveFace(face, 'The draught turns crimson and smokes.');
+    } else {
       puzzleContent.parentElement.classList.remove('shake');
       void puzzleContent.parentElement.offsetWidth;
       puzzleContent.parentElement.classList.add('shake');
@@ -444,6 +480,7 @@ function renderAlchemyPuzzle(face) {
   });
 }
 
+// Mirror & light puzzle (placeholder)
 function renderMirrorLightPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Mirror & Light</h3>
@@ -451,9 +488,9 @@ function renderMirrorLightPuzzle(face) {
     <div class="puzzle-actions"><button id="fakeSolve">(Dev) Solve</button></div>
   `;
   document.getElementById('fakeSolve').addEventListener('click', () => {
-    solveFace(face,'Mirrors click; the beam finds its mark.');
+    solveFace(face, 'Mirrors click; the beam finds its mark.');
   });
 }
 
-// Kick things off
+// Initialize everything
 init();
