@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Carmilla's Curse Puzzle Box</title>
   <!-- Import the Mr. Darcy font -->
-  <style>@import url("https://use.typekit.net/ubq8bdc.css");</style>
+  <style>
+    @import url("https://use.typekit.net/ubq8bdc.css");
+  </style>
   <style>
     :root {
       --obsidian: #0b0b0b;
@@ -19,6 +21,7 @@
       background-color: var(--obsidian);
       color: var(--notebook-white);
     }
+    /* Instruction overlay */
     #overlay {
       position: absolute;
       top: 10px;
@@ -36,45 +39,67 @@
       background:var(--deep-red);
       border:none;
       color:var(--notebook-white);
-      font-family:inherit;
       cursor:pointer;
       border-radius:3px;
       margin-right:0.5rem;
     }
+    /* Certificate overlay */
     #certificate {
-      position: fixed; top:0; left:0; width:100%; height:100%;
+      position: fixed;
+      top:0; left:0;
+      width:100%; height:100%;
       background: rgba(0,0,0,0.85);
-      display:none; justify-content:center; align-items:center;
+      display:none;
+      justify-content:center;
+      align-items:center;
       z-index:30;
     }
     #certificate.show { display:flex; }
     #certificate .cert-content {
       background: var(--obsidian);
-      border:2px solid var(--deep-red);
-      padding:1.5rem; text-align:center; max-width:400px; border-radius:6px;
+      border: 2px solid var(--deep-red);
+      padding: 1.5rem;
+      text-align:center;
+      max-width: 400px;
+      border-radius: 6px;
     }
-    #three-container { position:absolute; top:0; left:0; width:100%; height:100%; overflow:hidden; }
+    #three-container {
+      position: absolute;
+      top:0; left:0;
+      width:100%; height:100%;
+      overflow:hidden;
+    }
+    /* Puzzle modal styles */
     .puzzle-modal {
-      position:fixed; top:50%; left:50%;
-      transform: translate(-50%, -50%) scale(0);
+      position:fixed;
+      top:50%; left:50%;
+      transform: translate(-50%,-50%) scale(0);
       background:var(--obsidian);
       color:var(--notebook-white);
       border:2px solid var(--deep-red);
       padding:1rem;
-      display:flex; align-items:center; justify-content:center;
-      width:90%; max-width:500px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      width:90%;
+      max-width:500px;
       z-index:25;
       box-shadow:0 4px 8px rgba(0,0,0,0.2);
-      transition:transform 0.3s ease;
+      transition: transform 0.3s ease;
     }
-    .puzzle-modal.show { transform: translate(-50%,-50%) scale(1); }
+    .puzzle-modal.show {
+      transform: translate(-50%,-50%) scale(1);
+    }
     .puzzle-card { display:flex; flex-direction:column; gap:1rem; width:100%; }
     .puzzle-actions { display:flex; justify-content:space-between; }
     .puzzle-actions button {
       background-color: var(--deep-red);
       color: var(--notebook-white);
-      border: none; padding: 0.5rem 1rem;
-      cursor:pointer; font-size:1rem; border-radius:4px;
+      border: none;
+      padding: 0.5rem 1rem;
+      cursor:pointer;
+      font-size:1rem;
+      border-radius:4px;
     }
     @keyframes shake {
       0%,100% { transform: translateX(0); }
@@ -82,8 +107,10 @@
       40%,80% { transform: translateX(10px); }
     }
     .shake { animation: shake 0.5s; }
+    /* Sun dial and inventory panels */
     #sunDial, #inventory {
-      position:absolute; right:10px;
+      position:absolute;
+      right:10px;
       background:rgba(0,0,0,0.75);
       padding:0.75rem;
       border-radius:5px;
@@ -96,8 +123,18 @@
     #sunDial label { font-size:0.9rem; display:block; margin-bottom:0.25rem; }
     #sunDial input[type="range"] { width:100%; }
     #sunDial div { font-size:0.8rem; margin-top:0.25rem; }
-    #inventory h4 { margin:0 0 0.5rem; font-size:1rem; color:var(--deep-red); }
-    #inventory ul { list-style:none; margin:0; padding:0; max-height:100px; overflow-y:auto; font-size:0.85rem; }
+    #inventory h4 {
+      margin:0 0 0.5rem;
+      font-size:1rem;
+      color:var(--deep-red);
+    }
+    #inventory ul {
+      list-style:none;
+      margin:0; padding:0;
+      max-height:100px;
+      overflow-y:auto;
+      font-size:0.85rem;
+    }
     #inventory li { margin-bottom:0.25rem; }
     @media (max-width:600px) {
       #overlay { width:90%; font-size:0.8rem; }
@@ -108,10 +145,11 @@
 <body>
   <div id="overlay">
     <h1>Carmilla's Curse</h1>
-    <p>Rotate the box by dragging anywhere in the empty space. Click each face to solve a hidden puzzle. When all faces are solved, a secret artefact will be revealed. You can reset the orientation at any time.</p>
+    <p>Rotate the box by dragging anywhere in the empty space.  Click each face to solve a hidden puzzle.  When all faces are solved, a secret artefact will be revealed.  You can reset the orientation at any time.</p>
     <button id="resetBtn">Reset Rotation</button>
     <button id="musicBtn">Play Music</button>
   </div>
+
   <div id="certificate">
     <div class="cert-content">
       <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
@@ -120,6 +158,7 @@
       <button id="closeCertBtn">Close</button>
     </div>
   </div>
+
   <div id="puzzleModal" class="puzzle-modal">
     <div class="puzzle-card">
       <div id="puzzleContent"></div>
@@ -128,19 +167,29 @@
       </div>
     </div>
   </div>
+
+  <!-- Sun dial panel -->
   <div id="sunDial">
     <label for="sunDialSlider">Sun (hour)</label>
     <input id="sunDialSlider" type="range" min="0" max="24" step="0.1" value="12">
     <div id="sunDialReadout">Sun: 12:00</div>
   </div>
+
+  <!-- Inventory panel -->
   <div id="inventory">
     <h4>Inventory</h4>
     <ul id="inventoryList"></ul>
   </div>
+
+  <!-- Three.js container -->
   <div id="three-container"></div>
+
+  <!-- Background music -->
   <audio id="bgMusic" src="background.mp3" loop></audio>
+
+  <!-- Three.js library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-  <script src="./script_super_final2.js"></script>
+  <!-- Your custom logic -->
+  <script src="./script.js"></script>
 </body>
 </html>
-
