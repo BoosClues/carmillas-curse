@@ -1,170 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Carmilla's Curse Puzzle Box</title>
-
-  <!-- Mr. Darcy font -->
-  <style>@import url("https://use.typekit.net/ubq8bdc.css");</style>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"
+  />
+  <title>Puzzle Box — Fresh Build</title>
+  <meta name="theme-color" content="#0b0b0b" />
 
   <style>
     :root {
       --obsidian: #0b0b0b;
-      --deep-red: #6b1e2b;
-      --notebook-white: #f5f5f5;
+      --obsidian-2: #111213;
+      --crimson: #741d2a;
+      --brass: #a98a4a;
+      --ink: #dcd6c4;
     }
-
-    /* Base */
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: "mr-darcy", Georgia, serif;
-      background-color: var(--obsidian);
-      color: var(--notebook-white);
-    }
-
-    /* Instruction overlay */
-    #overlay {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      z-index: 10;
-      background: rgba(0,0,0,0.7);
-      padding: 1rem;
-      border-radius: 5px;
-      max-width: 340px;
-    }
-    #overlay h1 {
-      margin: 0 0 0.5rem 0;
-      font-size: 1.6rem;
-      color: var(--deep-red);
-    }
-    #overlay p { margin: 0 0 0.5rem 0; line-height: 1.3; }
-    #overlay button {
-      padding: 0.5rem 0.8rem;
-      background: var(--deep-red);
-      border: none;
-      color: var(--notebook-white);
-      font-family: inherit;
-      cursor: pointer;
-      border-radius: 3px;
-      margin-right: 0.5rem;
-    }
-
-    /* Certificate overlay */
-    #certificate {
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,0.85);
-      display: none;
-      justify-content: center;
-      align-items: center;
-      z-index: 20;
-    }
-    #certificate.show { display: flex; }
-    #certificate .cert-content {
-      background: var(--obsidian);
-      border: 2px solid var(--deep-red);
-      padding: 1.5rem;
-      text-align: center;
-      max-width: 400px;
-      border-radius: 6px;
-    }
-    #certificate img { max-width: 100%; margin-bottom: 1rem; }
-    #certificate h2 { margin: 0 0 0.5rem 0; color: var(--deep-red); }
-
-    /* Three.js canvas container */
-    #three-container {
-      position: absolute; inset: 0;
+    html, body {
+      margin: 0; padding: 0;
       width: 100%; height: 100%;
-      overflow: hidden;
+      background: radial-gradient(ellipse at center, #0b0b0b 0%, #050505 60%, #000 100%);
+      color: var(--ink);
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      -webkit-tap-highlight-color: transparent;
     }
-
-    /* Puzzle modal (reusable for all puzzles) */
-    .puzzle-modal {
-      position: fixed; inset: 0; z-index: 19;
-      display: none; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.85);
+    #stage { position: fixed; inset: 0; touch-action: none; }
+    /* UI */
+    .ui {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      display: flex; justify-content: space-between; gap: .5rem;
+      padding: .5rem .75rem; pointer-events: none;
     }
-    .puzzle-modal.show { display: flex; }
-    .puzzle-card {
-      width: min(92vw, 520px);
-      background: var(--obsidian);
-      border: 2px solid var(--deep-red);
-      border-radius: 6px;
-      padding: 1rem;
-      color: var(--notebook-white);
+    .ui > div { pointer-events: auto; display: flex; gap: .5rem; }
+    button {
+      background: rgba(0,0,0,.6);
+      color: var(--ink);
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: .55rem .8rem;
+      font-size: .95rem; letter-spacing: .02em;
     }
-    .puzzle-actions {
-      margin-top: 0.75rem;
-      display: flex; gap: 0.5rem; justify-content: flex-end;
+    button:active { transform: translateY(1px); }
+    /* Top status */
+    .status {
+      position: fixed; top: .5rem; left: .5rem;
+      background: rgba(0,0,0,.55);
+      border: 1px solid #262626;
+      border-radius: 8px; padding: .4rem .6rem;
+      font-size: .8rem;
     }
-    .puzzle-actions button {
-      padding: 0.5rem 0.8rem;
-      background: var(--deep-red);
-      border: none;
-      color: var(--notebook-white);
-      border-radius: 3px;
-      cursor: pointer;
+    /* Stanza glow strip (appears as steps progress) */
+    #stanzaStrip {
+      position: fixed; top: .5rem; right: .5rem; max-width: 60vw;
+      padding: .5rem .75rem; border-radius: 8px;
+      background: linear-gradient(90deg, rgba(116,29,42,.35), rgba(116,29,42,.05));
+      border: 1px solid rgba(116,29,42,.4);
+      font-size: .9rem; display: none;
+      box-shadow: 0 0 16px rgba(116,29,42,.2);
     }
-
-    /* Feedback animation for wrong attempts */
-    @keyframes shake {
-      0% { transform: translateX(0); }
-      25% { transform: translateX(6px); }
-      50% { transform: translateX(-6px); }
-      75% { transform: translateX(4px); }
-      100% { transform: translateX(0); }
-    }
-    .shake { animation: shake 220ms ease-in-out; }
-
-    /* Mobile QoL tweaks */
-    @media (max-width: 600px) {
-      #overlay { max-width: 84vw; font-size: 0.92rem; }
-    }
+    /* Mobile-safe hit helpers */
+    .hit { touch-action: none; }
   </style>
+
+  <!-- Three.js + helpers (pin versions for stability) -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/RGBELoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
 </head>
 <body>
-  <!-- Instruction overlay -->
-  <div id="overlay">
-    <h1>Carmilla's Curse</h1>
-    <p id="instructionText">
-      Drag to rotate the box. Tap a face to open its puzzle. When all faces are unlocked, your artefact appears.
-    </p>
-    <button id="resetBtn">Reset Rotation</button>
-    <button id="musicBtn">Play Music</button>
-  </div>
+  <canvas id="stage"></canvas>
 
-  <!-- Certificate overlay -->
-  <div id="certificate">
-    <div class="cert-content">
-      <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
-      <h2>Certificate of Completion</h2>
-      <p>You have lifted Carmilla's curse and earned a special advantage. Present this at the party.</p>
-      <button id="closeCertBtn">Close</button>
+  <div class="status" id="status">Step: 0 — “Prick to begin”</div>
+  <div id="stanzaStrip"></div>
+
+  <div class="ui">
+    <div>
+      <button id="zoomOutBtn" aria-label="Zoom out">Zoom out</button>
+    </div>
+    <div>
+      <button id="resetBtn" aria-label="Reset">Reset</button>
+      <button id="muteBtn" aria-label="Toggle audio">Audio</button>
     </div>
   </div>
 
-  <!-- Puzzle Modal -->
-  <div id="puzzleModal" class="puzzle-modal">
-    <div class="puzzle-card">
-      <div id="puzzleContent"></div>
-      <div class="puzzle-actions">
-        <button id="puzzleCloseBtn">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- WebGL mount -->
-  <div id="three-container"></div>
-
-  <!-- Background music -->
-  <audio id="bgMusic" src="background.mp3" loop></audio>
-
-  <!-- Three.js library (no OrbitControls needed) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-
-  <!-- App logic -->
   <script src="./script.js"></script>
 </body>
 </html>
