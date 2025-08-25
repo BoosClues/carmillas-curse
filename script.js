@@ -1,4 +1,4 @@
-// === Carmilla's Curse - Three.js cube + Hemodynamics puzzle ===
+// === Carmilla's Curse - script.js (manual rotation, with puzzles) ===
 
 // Buttons & overlays
 const resetBtn     = document.getElementById('resetBtn');
@@ -12,7 +12,7 @@ const puzzleModal   = document.getElementById('puzzleModal');
 const puzzleContent = document.getElementById('puzzleContent');
 const puzzleClose   = document.getElementById('puzzleCloseBtn');
 
-// State: which faces are solved
+// Solved state per face
 const solved = { front:false, back:false, left:false, right:false, top:false, bottom:false };
 
 // Three.js globals
@@ -21,23 +21,23 @@ let isDragging = false, dragMoved = false;
 let prev = { x:0, y:0 };
 let initialRotation = { x:0, y:0 };
 
-// ---------- Init Three.js ----------
+// ===== Init Three.js scene =====
 function init() {
   const container = document.getElementById('three-container');
   scene  = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222);
+  scene.background = new THREE.Color(0x222222); // dark grey for contrast
 
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.set(0, 0, 5);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.domElement.style.touchAction = 'none';
+  renderer.domElement.style.touchAction = 'none'; // friendlier touch drag
   container.appendChild(renderer.domElement);
 
-  // Materials (same texture for now; replace per-face later if you like)
+  // Materials (same texture all sides for now)
   const loader = new THREE.TextureLoader();
-  const tex = (p) => loader.load(p, undefined, undefined, () => console.warn('Texture failed:', p));
+  const tex = (p)=> loader.load(p, undefined, undefined, ()=>console.warn('Texture failed:', p));
   const materials = [
     new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // right
     new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // left
@@ -46,36 +46,57 @@ function init() {
     new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // front
     new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff })  // back
   ];
+
   cube = new THREE.Mesh(new THREE.BoxGeometry(2,2,2), materials);
   scene.add(cube);
 
-  initialRotation.x = cube.rotation.x; initialRotation.y = cube.rotation.y;
-  raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
+  // Save initial rotation
+  initialRotation.x = cube.rotation.x;
+  initialRotation.y = cube.rotation.y;
 
-  // Rotation (mouse)
+  // Raycaster & mouse
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+
+  // Rotation (mouse/touch)
   const c = renderer.domElement;
-  c.addEventListener('mousedown', (e)=>{ isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; });
-  c.addEventListener('mousemove', (e)=>{ if(!isDragging) return; const dx=e.clientX-prev.x, dy=e.clientY-prev.y; cube.rotation.y += dx*0.01; cube.rotation.x += dy*0.01; prev.x=e.clientX; prev.y=e.clientY; dragMoved=true; });
-  c.addEventListener('mouseup',   ()=>{ isDragging=false; });
-  c.addEventListener('mouseleave',()=>{ isDragging=false; });
+  c.addEventListener('mousedown', onPointerDown);
+  c.addEventListener('mousemove', onPointerMove);
+  c.addEventListener('mouseup',   onPointerUp);
+  c.addEventListener('mouseleave',onPointerUp);
 
-  // Rotation (touch)
-  c.addEventListener('touchstart', (e)=>{ if(!e.touches.length) return; isDragging=true; dragMoved=false; prev.x=e.touches[0].clientX; prev.y=e.touches[0].clientY; }, { passive:true });
-  c.addEventListener('touchmove',  (e)=>{ if(!isDragging || !e.touches.length) return; const x=e.touches[0].clientX,y=e.touches[0].clientY; const dx=x-prev.x, dy=y-prev.y; cube.rotation.y += dx*0.01; cube.rotation.x += dy*0.01; prev.x=x; prev.y=y; dragMoved=true; }, { passive:true });
+  c.addEventListener('touchstart', (e)=>{
+    if (!e.touches.length) return;
+    isDragging=true; dragMoved=false;
+    prev.x = e.touches[0].clientX; prev.y = e.touches[0].clientY;
+  }, { passive:true });
+
+  c.addEventListener('touchmove', (e)=>{
+    if (!isDragging || !e.touches.length) return;
+    const x = e.touches[0].clientX, y = e.touches[0].clientY;
+    const dx = x - prev.x, dy = y - prev.y;
+    cube.rotation.y += dx * 0.01;
+    cube.rotation.x += dy * 0.01;
+    prev.x = x; prev.y = y; dragMoved = true;
+  }, { passive:true });
+
   c.addEventListener('touchend', ()=>{ isDragging=false; });
 
-  // Click -> open puzzle
+  // Click → open puzzle (ignore if you were dragging)
   c.addEventListener('click', (event)=>{
     if (dragMoved) { dragMoved=false; return; }
     const faceName = pickFace(event);
     if (faceName) openPuzzle(faceName);
   });
 
+  // Resize responsiveness
   window.addEventListener('resize', resizeCamera);
   resizeCamera();
 
-  resetBtn.addEventListener('click', ()=> {
-    cube.rotation.x = initialRotation.x; cube.rotation.y = initialRotation.y;
+  // Buttons
+  resetBtn.addEventListener('click', ()=>{
+    cube.rotation.x = initialRotation.x;
+    cube.rotation.y = initialRotation.y;
   });
   musicBtn.addEventListener('click', ()=>{
     if (bgMusic.paused) { bgMusic.play().catch(()=>{}); musicBtn.textContent='Pause Music'; }
@@ -91,18 +112,24 @@ function resizeCamera(){
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.position.z = (window.innerWidth < 600) ? 7 : 5; // mobile QoL
+  // Pull back on narrow screens so the cube isn't huge on mobile
+  camera.position.z = (window.innerWidth < 600) ? 7 : 5;
 }
+
+function onPointerDown(e){ isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; }
+function onPointerMove(e){ if(!isDragging) return; const dx=e.clientX-prev.x, dy=e.clientY-prev.y; cube.rotation.y += dx*0.01; cube.rotation.x += dy*0.01; prev.x=e.clientX; prev.y=e.clientY; dragMoved=true; }
+function onPointerUp(){ isDragging=false; }
 
 function animate(){ requestAnimationFrame(animate); renderer.render(scene, camera); }
 
-// ----- Picking helpers -----
+// ===== Picking helpers =====
 function faceLabelFromMaterialIndex(i){
+  // Our materials order: [right, left, top, bottom, front, back]
   return (i===4?'front': i===5?'back': i===1?'left': i===0?'right': i===2?'top': i===3?'bottom':'');
 }
 function materialIndexFromFaceIndex(geom, faceIndex){
   const triStart = faceIndex * 3;
-  for (let g of geom.groups) if (triStart >= g.start && triStart < g.start+g.count) return g.materialIndex;
+  for (let g of geom.groups) { if (triStart >= g.start && triStart < g.start+g.count) return g.materialIndex; }
   return 0;
 }
 function pickFace(event){
@@ -116,23 +143,29 @@ function pickFace(event){
   return faceLabelFromMaterialIndex(matIdx);
 }
 
-// ----- Modal helpers -----
+// ===== Modal helpers =====
 function openPuzzle(face){
-  if (solved[face]) { toast('That panel is already unlocked.'); return; }
-  if (face==='front')       renderHemodynamics(face);        // <— THIS PUZZLE
-  else if (face==='right')  renderStub(face, 'IV Routing (coming up)');
-  else if (face==='back')   renderStub(face, 'Constellation');
-  else if (face==='left')   renderStub(face, 'Arithmomania');
-  else if (face==='top')    renderStub(face, 'Alchemy');
-  else if (face==='bottom') renderStub(face, 'Mirror & Light');
+  if (solved[face]) { toast(`That panel is already unlocked.`); return; }
+  if (face==='front')   renderTikiPuzzle(face);          // orientation + time
+  else if (face==='right')  renderDurianPuzzle(face);    // warding fruit
+  else if (face==='back')   renderConstellationPuzzle(face); // star sliders (gated)
+  else if (face==='left')   renderRicePuzzle(face);      // scaffold (arithmomania)
+  else if (face==='top')    renderAlchemyPuzzle(face);   // scaffold (2:3:1)
+  else if (face==='bottom') renderMirrorLightPuzzle(face); // scaffold
   puzzleModal.classList.add('show');
 }
-function closePuzzle(){ puzzleModal.classList.remove('show'); puzzleContent.innerHTML=''; }
+function closePuzzle(){
+  puzzleModal.classList.remove('show');
+  puzzleContent.innerHTML = '';
+}
 function solveFace(face, message){
-  solved[face]=true; toast(message || `You unlocked the ${face} panel.`);
+  solved[face]=true;
+  toast(message || `You unlocked the ${face} panel.`);
+  // Dim that face's material colour as a visual indicator
   const matIndex = (face==='front'?4: face==='back'?5: face==='left'?1: face==='right'?0: face==='top'?2: 3);
-  cube.material[matIndex].color.set(0x333333); // dim as solved
-  closePuzzle(); checkCompletion();
+  cube.material[matIndex].color.set(0x333333);
+  closePuzzle();
+  checkCompletion();
 }
 function checkCompletion(){
   if (Object.values(solved).every(Boolean)) {
@@ -142,161 +175,234 @@ function checkCompletion(){
 }
 function toast(msg){
   const div = document.createElement('div');
-  div.textContent = msg; div.style.marginTop='0.5rem'; div.style.opacity='0.92';
+  div.textContent = msg;
+  div.style.marginTop = '0.5rem';
+  div.style.opacity = '0.92';
   puzzleContent.appendChild(div);
 }
-function renderStub(face, label){
-  puzzleContent.innerHTML = `<h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">${label}</h3>
-  <p>This panel will unlock later in development.</p>
-  <div class="puzzle-actions"><button id="fakeSolve">Dev: Solve</button></div>`;
-  document.getElementById('fakeSolve').addEventListener('click', ()=> solveFace(face, 'Unlocked (dev).'));
-}
 
-// ---------- PUZZLE: Hemodynamics (blood-pressure valves) ----------
-function renderHemodynamics(face){
-  // Model constants
-  const S0=100, D0=70;
-  const heartS=[0,10,20], heartD=[0,2,4];
-  const resS=[0,6,12],    resD=[0,8,16];
-  const compS=[10,0,-10], compD=[-5,0,5];
-  const shS=[0,-4,-8],    shD=[0,-10,-20];
-
-  // Phases & targets (unique solutions)
-  const phases = [
-    { name:'Stabilize', S:[118,122], D:[78,82] },    // solution: H=L, R=H, C=L, Sh=L
-    { name:'Overpressure', S:[130,134], D:[88,92] }, // solution: H=H, R=H, C=M, Sh=L
-    { name:'Torpor', S:[87,89], D:[62,64] }          // solution: H=L, R=M, C=H, Sh=H
-  ];
-  let phaseIndex = 0;
-
-  // Current dial positions (0=L, 1=M, 2=H)
-  const dials = { heart:0, resist:0, comp:0, shunt:0 };
-
+// ===== PUZZLE 1: Tiki Vampire & Day‑Sleep Key =====
+function renderTikiPuzzle(face){
   puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.25rem 0;color:var(--deep-red)">${phases[phaseIndex].name}: Blood Pressure Valves</h3>
-    <p style="margin:0 0 0.5rem 0">Prick the finger to prime the pump. Route the flow by setting the valves.</p>
-
-    <div class="tube" id="tube"></div>
-
-    <div class="gauges">
-      <div class="g"><h4>Systolic</h4><div class="read" id="readS">—</div><div class="zones" id="zoneS"></div></div>
-      <div class="g"><h4>Diastolic</h4><div class="read" id="readD">—</div><div class="zones" id="zoneD"></div></div>
-      <div class="g"><h4>MAP</h4><div class="read" id="readMAP">—</div><div class="zones" id="zoneMAP"></div></div>
-    </div>
-
-    <div class="dials">
-      ${renderDial('Heart (stroke)', 'heart')}
-      ${renderDial('Resistance', 'resist')}
-      ${renderDial('Compliance', 'comp')}
-      ${renderDial('Shunt', 'shunt')}
-    </div>
-
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">The Wrought‑Iron Key</h3>
+    <p style="margin:0 0 0.5rem 0">
+      Vampires sleep <em>by day</em> and <em>upside down</em>.<br/>
+      Rotate this face so it points to the ground, and set the sun to midday.
+    </p>
+    <label for="sunSlider">Sun (hour):</label>
+    <input id="sunSlider" type="range" min="0" max="24" step="0.1" value="9" style="width:100%;">
+    <div id="sunReadout" style="margin:0.25rem 0 0.75rem 0;">Sun: 09:00</div>
     <div class="puzzle-actions">
-      <button id="btnCheck">Apply</button>
-      <button id="btnNext" style="display:none">Proceed</button>
+      <button id="tryKeyBtn">Try the key</button>
     </div>
   `;
 
-  function renderDial(label, key){
-    return `
-      <div class="dial">
-        <h5>${label}</h5>
-        <div class="row"><div>Pos.</div>
-          <div class="pos" data-key="${key}">
-            <button data-v="0" class="pbtn">L</button>
-            <button data-v="1" class="pbtn">M</button>
-            <button data-v="2" class="pbtn">H</button>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  // Wire dial buttons
-  document.querySelectorAll('.pos').forEach(group=>{
-    const key = group.dataset.key;
-    group.querySelectorAll('.pbtn').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        group.querySelectorAll('.pbtn').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        dials[key] = +btn.dataset.v;
-        update();
-      });
-    });
-    // default: set to Medium for nice start
-    const mid = group.querySelector('[data-v="1"]'); mid.classList.add('active'); dials[key]=1;
+  const sunSlider  = document.getElementById('sunSlider');
+  const sunReadout = document.getElementById('sunReadout');
+  sunSlider.addEventListener('input', ()=>{
+    const h = parseFloat(sunSlider.value);
+    const hh = String(Math.floor(h)).padStart(2,'0');
+    const mm = String(Math.round((h%1)*60)).padStart(2,'0');
+    sunReadout.textContent = `Sun: ${hh}:${mm}`;
   });
 
-  const btnCheck = document.getElementById('btnCheck');
-  const btnNext  = document.getElementById('btnNext');
-  const tube     = document.getElementById('tube');
+  document.getElementById('tryKeyBtn').addEventListener('click', ()=>{
+    // "Front face" normal in world space
+    const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
+    const down = new THREE.Vector3(0,-1,0);
+    const facingDown = frontNormal.dot(down) > 0.95;   // ~18° tolerance
 
-  btnCheck.addEventListener('click', tryApply);
-  btnNext.addEventListener('click', ()=>{
-    phaseIndex++;
-    if (phaseIndex >= phases.length) {
-      solveFace(face, 'Valves align; the next channel opens.');
-      return;
-    }
-    // Reset UI for next phase
-    puzzleContent.parentElement.classList.remove('shake');
-    btnNext.style.display='none';
-    document.querySelector('h3').textContent = `${phases[phaseIndex].name}: Blood Pressure Valves`;
-    update(true);
-  });
+    // Midday range
+    const h = parseFloat(sunSlider.value);
+    const midday = (h >= 11 && h <= 13);
 
-  // live gauges
-  function compute(){
-    const h=dials.heart, r=dials.resist, c=dials.comp, s=dials.shunt;
-    const S = S0 + heartS[h] + resS[r] + compS[c] + shS[s];
-    const D = D0 + heartD[h] + resD[r] + compD[c] + shD[s];
-    const MAP = D + (S-D)/3;
-    return {S, D, MAP};
-  }
-  function inRange(v, [min,max]){ return v>=min && v<=max; }
-
-  function update(jump=false){
-    const {S,D,MAP} = compute();
-    const ph = phases[phaseIndex];
-    setGauge('S', S, ph.S);
-    setGauge('D', D, ph.D);
-    // derive MAP target from S/D
-    const tMAP = [ ph.D[0] + (ph.S[0]-ph.D[0])/3, ph.D[1] + (ph.S[1]-ph.D[1])/3 ];
-    setGauge('MAP', MAP, tMAP);
-
-    // pulse animation speed from Heart dial
-    tube.classList.remove('slow','fast');
-    if (dials.heart===0) tube.classList.add('slow');
-    if (dials.heart===2) tube.classList.add('fast');
-  }
-
-  function setGauge(id, val, target){
-    const el = document.getElementById('read'+id);
-    const zone = document.getElementById('zone'+id);
-    el.textContent = Math.round(val);
-    zone.textContent = `target ${Math.round(target[0])}–${Math.round(target[1])}`;
-    el.classList.remove('ok','warn','bad');
-    if (inRange(val, target)) el.classList.add('ok');
-    else if (Math.abs(val - (target[0]+target[1])/2) <= 6) el.classList.add('warn');
-    else el.classList.add('bad');
-  }
-
-  function tryApply(){
-    const {S,D,MAP} = compute();
-    const ph = phases[phaseIndex];
-    const tMAP = [ ph.D[0] + (ph.S[0]-ph.D[0])/3, ph.D[1] + (ph.S[1]-ph.D[1])/3 ];
-    const ok = inRange(S, ph.S) && inRange(D, ph.D) && inRange(MAP, tMAP);
-    if (ok) {
-      toast('Valves hiss; needles settle in the green.');
-      btnNext.style.display='inline-block';
+    if (facingDown && midday) {
+      solveFace(face, 'With a dull clink, the iron key slides free.');
     } else {
       puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
       puzzleContent.parentElement.classList.add('shake');
-      toast('The flow resists you.');
+      toast('The guardian still watches… (Upside down at midday.)');
     }
-  }
-
-  update(true);
+  });
 }
 
-// ---------- Start ----------
+// ===== PUZZLE 2: Durian Ward =====
+function renderDurianPuzzle(face){
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">The Warding Fruit</h3>
+    <p style="margin:0 0 0.5rem 0">
+      Choose the fruit that wards <em>tropical</em> vampires.
+    </p>
+    <div id="fruitGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin:0.5rem 0;">
+      ${['Garlic','Mango','Durian','Pineapple','Lychee','Starfruit'].map(name => `
+        <button class="fruitBtn" data-name="${name}"
+          style="padding:0.8rem 0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px;cursor:pointer;">
+          ${name}
+        </button>`).join('')}
+    </div>
+    <div class="puzzle-actions">
+      <button id="wardBtn" disabled>Ward this panel</button>
+    </div>
+  `;
+
+  let chosen = '';
+  const buttons = [...document.querySelectorAll('.fruitBtn')];
+  buttons.forEach(b=>{
+    b.addEventListener('click', ()=>{
+      buttons.forEach(x=> x.style.outline='none');
+      b.style.outline = `2px solid var(--deep-red)`;
+      chosen = b.dataset.name;
+      document.getElementById('wardBtn').disabled = false;
+    });
+  });
+
+  document.getElementById('wardBtn').addEventListener('click', ()=>{
+    if (chosen === 'Durian') {
+      solveFace(face, 'The stench is salvation—the ward holds.');
+    } else {
+      puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('A sour choice. The ward fails.');
+    }
+  });
+}
+
+// ===== PUZZLE 3: Hibiscus Constellation (sliders gated by other panels) =====
+function renderConstellationPuzzle(face){
+  // Sliders unlock as other panels are solved:
+  const unlocked = {
+    r:     solved.front,   // radius ← Tiki vampire
+    rot:   solved.right,   // rotation ← Durian ward
+    spread:solved.left,    // spread  ← Rice (arithmomania)
+    inner: solved.top,     // inner   ← Alchemy
+    offset:solved.bottom   // offset  ← Mirror & Light
+  };
+  const lockIcon = (ok)=> ok?'':'&#x1f512;'; // 🔒
+
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Starlit Prophecy</h3>
+    <p style="margin:0 0 0.5rem 0">Gather the stars into the hibiscus.</p>
+    <canvas id="starCanvas" width="360" height="240" style="width:100%;background:#0e0e0e;border:1px solid #222"></canvas>
+    <div style="margin-top:0.5rem;display:grid;grid-template-columns:1fr 4fr;gap:0.5rem;align-items:center;">
+      <label>Radius ${lockIcon(unlocked.r)}</label>      <input id="slR" type="range" min="10" max="100" value="40" ${unlocked.r?'':'disabled'}>
+      <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot?'':'disabled'}>
+      <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80"  value="35" ${unlocked.spread?'':'disabled'}>
+      <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50"  value="18" ${unlocked.inner?'':'disabled'}>
+      <label>Offset ${lockIcon(unlocked.offset)}</label> <input id="slOff" type="range"  min="-40" max="40" value="0"  ${unlocked.offset?'':'disabled'}>
+    </div>
+    <div class="puzzle-actions"><button id="bindStarsBtn">Bind the stars</button></div>
+  `;
+
+  const cvs = document.getElementById('starCanvas');
+  const ctx = cvs.getContext('2d');
+  const sliders = ['slR','slRot','slSpread','slInner','slOff'].map(id=>document.getElementById(id));
+
+  function draw(){
+    const [R,rot,spread,inner,off] = sliders.map(s=> parseFloat(s?.value || 0));
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    ctx.fillStyle = '#bbb';
+    for(let i=0;i<5;i++){
+      const a = (i*(Math.PI*2/5)) + (rot*Math.PI/180);
+      const r = R + (i%2===0?spread:-inner);
+      const x = cvs.width/2 + Math.cos(a)*r;
+      const y = cvs.height/2 + Math.sin(a)*(r+off);
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+    }
+  }
+  sliders.forEach(s=> s && s.addEventListener('input', draw));
+  draw();
+
+  const target = { R:50, rot:25, spread:42, inner:15, off:6 }; // tweak later
+  document.getElementById('bindStarsBtn').addEventListener('click', ()=>{
+    const vals = {
+      R: parseFloat(sliders[0]?.value || 0),
+      rot: parseFloat(sliders[1]?.value || 0),
+      spread: parseFloat(sliders[2]?.value || 0),
+      inner: parseFloat(sliders[3]?.value || 0),
+      off: parseFloat(sliders[4]?.value || 0),
+    };
+    const tol = (a,b,t)=> Math.abs(a-b) <= t;
+    const ok =
+      tol(vals.R, target.R, 4) &&
+      tol(vals.rot, target.rot, 4) &&
+      tol(vals.spread, target.spread, 4) &&
+      tol(vals.inner, target.inner, 3) &&
+      tol(vals.off, target.off, 3);
+
+    if (ok) solveFace(face, 'The flower blooms among the stars.');
+    else {
+      puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
+      puzzleContent.parentElement.classList.add('shake');
+      toast('The stars resist your hand.');
+    }
+  });
+}
+
+// ===== Remaining panels (scaffolds for now) =====
+function renderRicePuzzle(face){
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Arithmomania</h3>
+    <p>Enter the total grains spilled across all panels:</p>
+    <input id="riceInput" type="number" inputmode="numeric"
+           style="width:100%;padding:0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px"
+           placeholder="Total grains">
+    <div class="puzzle-actions">
+      <button id="riceCheckBtn">Open</button>
+      <button id="devSolveRice" style="opacity:.6">Dev: Solve</button>
+    </div>
+  `;
+  document.getElementById('riceCheckBtn').addEventListener('click', ()=>{
+    const correctTotal = 123; // TODO: wire counts from other faces
+    const val = parseInt(document.getElementById('riceInput').value,10);
+    if (val === correctTotal) solveFace(face, 'The panel slides with a soft sigh.');
+    else { puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth; puzzleContent.parentElement.classList.add('shake'); toast('Grains scattered from your hand…'); }
+  });
+  document.getElementById('devSolveRice').addEventListener('click', ()=> solveFace(face,'(dev) Rice solved.'));
+}
+
+function renderAlchemyPuzzle(face){
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Blood Alchemy</h3>
+    <p>Mix the draught (2 : 3 : 1) — Garlic / Moonlight / Rose.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;align-items:center;margin-top:0.5rem">
+      <label>Garlic</label>   <input id="a1" type="range" min="0" max="5" value="0">
+      <label>Moonlight</label><input id="a2" type="range" min="0" max="5" value="0">
+      <label>Rose</label>     <input id="a3" type="range" min="0" max="5" value="0">
+    </div>
+    <div id="brew" style="margin:0.75rem 0;height:22px;background:#111;border:1px solid #333;border-radius:3px;"></div>
+    <div class="puzzle-actions">
+      <button id="brewBtn">Brew</button>
+      <button id="devSolveAlchemy" style="opacity:.6">Dev: Solve</button>
+    </div>
+  `;
+  const bars = [document.getElementById('a1'),document.getElementById('a2'),document.getElementById('a3')];
+  const brew = document.getElementById('brew');
+  bars.forEach(b=> b.addEventListener('input', ()=>{
+    const [g,m,r] = bars.map(x=>+x.value);
+    const rr = Math.min(255, 80 + r*30 + m*10);
+    const gg = Math.min(255, 10 + m*25);
+    const bb = Math.min(255, 10 + g*10);
+    brew.style.background = `rgb(${rr},${gg},${bb})`;
+  }));
+  document.getElementById('brewBtn').addEventListener('click', ()=>{
+    const [g,m,r] = bars.map(x=>+x.value);
+    const ok = (g===2 && m===3 && r===1);
+    if (ok) solveFace(face, 'The draught turns crimson and smokes.');
+    else { puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth; puzzleContent.parentElement.classList.add('shake'); toast('The mixture curdles.'); }
+  });
+  document.getElementById('devSolveAlchemy').addEventListener('click', ()=> solveFace(face,'(dev) Alchemy solved.'));
+}
+
+function renderMirrorLightPuzzle(face){
+  puzzleContent.innerHTML = `
+    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Mirror & Light</h3>
+    <p>A beam must reach the sensor without touching a vampire. (Prototype to follow.)</p>
+    <div class="puzzle-actions">
+      <button id="devSolveBeam" style="opacity:.6">Dev: Solve</button>
+    </div>
+  `;
+  document.getElementById('devSolveBeam').addEventListener('click', ()=> solveFace(face,'(dev) Mirrors solved.'));
+}
+
+// ===== Start =====
 init();
