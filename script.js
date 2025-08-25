@@ -1,408 +1,393 @@
-// === Carmilla's Curse - script.js (manual rotation, with puzzles) ===
+/* eslint-disable */
+(() => {
+  // ---------- Core setup ----------
+  const canvas = document.getElementById('stage');
+  const statusEl = document.getElementById('status');
+  const stanzaStrip = document.getElementById('stanzaStrip');
+  const resetBtn = document.getElementById('resetBtn');
+  const zoomOutBtn = document.getElementById('zoomOutBtn');
+  const muteBtn = document.getElementById('muteBtn');
 
-// Buttons & overlays
-const resetBtn     = document.getElementById('resetBtn');
-const musicBtn     = document.getElementById('musicBtn');
-const certificate  = document.getElementById('certificate');
-const closeCertBtn = document.getElementById('closeCertBtn');
-const bgMusic      = document.getElementById('bgMusic');
+  const isMobile = matchMedia('(pointer: coarse)').matches;
 
-// Puzzle modal
-const puzzleModal   = document.getElementById('puzzleModal');
-const puzzleContent = document.getElementById('puzzleContent');
-const puzzleClose   = document.getElementById('puzzleCloseBtn');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
 
-// Solved state per face
-const solved = { front:false, back:false, left:false, right:false, top:false, bottom:false };
+  const scene = new THREE.Scene();
 
-// Three.js globals
-let scene, camera, renderer, cube, raycaster, mouse;
-let isDragging = false, dragMoved = false;
-let prev = { x:0, y:0 };
-let initialRotation = { x:0, y:0 };
+  const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(0.8, 0.7, 2.8);
 
-// ===== Init Three.js scene =====
-function init() {
-  const container = document.getElementById('three-container');
-  scene  = new THREE.Scene();
-  scene.background = new THREE.Color(0x222222); // dark grey for contrast
+  // Subtle pedestal spotlight feel
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x333333, 0.45);
+  scene.add(hemi);
+  const spot = new THREE.SpotLight(0xffe8c4, 3, 8, Math.PI / 6, 0.25, 1.5);
+  spot.position.set(1.8, 3.0, 2.0);
+  spot.target.position.set(0, 0, 0);
+  scene.add(spot, spot.target);
 
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-  camera.position.set(0, 0, 5);
+  // Obsidian-ish env (placeholder tone)
+  scene.background = null;
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.domElement.style.touchAction = 'none'; // friendlier touch drag
-  container.appendChild(renderer.domElement);
+  // Orbit only for zoom out; we’ll program custom close-ups for “The Room” feel
+  const orbit = new THREE.OrbitControls(camera, renderer.domElement);
+  orbit.enablePan = false;
+  orbit.enableDamping = true;
+  orbit.minDistance = 1.0;
+  orbit.maxDistance = 4.0;
+  orbit.enabled = false;
 
-  // Materials (same texture all sides for now)
-  const loader = new THREE.TextureLoader();
-  const tex = (p)=> loader.load(p, undefined, undefined, ()=>console.warn('Texture failed:', p));
-  const materials = [
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // right
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // left
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // top
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // bottom
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff }), // front
-    new THREE.MeshBasicMaterial({ map: tex('boxTexture.png'), color: 0xffffff })  // back
-  ];
-
-  cube = new THREE.Mesh(new THREE.BoxGeometry(2,2,2), materials);
-  scene.add(cube);
-
-  // Save initial rotation
-  initialRotation.x = cube.rotation.x;
-  initialRotation.y = cube.rotation.y;
-
-  // Raycaster & mouse
-  raycaster = new THREE.Raycaster();
-  mouse = new THREE.Vector2();
-
-  // Rotation (mouse/touch)
-  const c = renderer.domElement;
-  c.addEventListener('mousedown', onPointerDown);
-  c.addEventListener('mousemove', onPointerMove);
-  c.addEventListener('mouseup',   onPointerUp);
-  c.addEventListener('mouseleave',onPointerUp);
-
-  c.addEventListener('touchstart', (e)=>{
-    if (!e.touches.length) return;
-    isDragging=true; dragMoved=false;
-    prev.x = e.touches[0].clientX; prev.y = e.touches[0].clientY;
-  }, { passive:true });
-
-  c.addEventListener('touchmove', (e)=>{
-    if (!isDragging || !e.touches.length) return;
-    const x = e.touches[0].clientX, y = e.touches[0].clientY;
-    const dx = x - prev.x, dy = y - prev.y;
-    cube.rotation.y += dx * 0.01;
-    cube.rotation.x += dy * 0.01;
-    prev.x = x; prev.y = y; dragMoved = true;
-  }, { passive:true });
-
-  c.addEventListener('touchend', ()=>{ isDragging=false; });
-
-  // Click → open puzzle (ignore if you were dragging)
-  c.addEventListener('click', (event)=>{
-    if (dragMoved) { dragMoved=false; return; }
-    const faceName = pickFace(event);
-    if (faceName) openPuzzle(faceName);
-  });
-
-  // Resize responsiveness
-  window.addEventListener('resize', resizeCamera);
-  resizeCamera();
-
-  // Buttons
-  resetBtn.addEventListener('click', ()=>{
-    cube.rotation.x = initialRotation.x;
-    cube.rotation.y = initialRotation.y;
-  });
-  musicBtn.addEventListener('click', ()=>{
-    if (bgMusic.paused) { bgMusic.play().catch(()=>{}); musicBtn.textContent='Pause Music'; }
-    else { bgMusic.pause(); musicBtn.textContent='Play Music'; }
-  });
-  closeCertBtn.addEventListener('click', ()=> certificate.classList.remove('show'));
-  puzzleClose.addEventListener('click', closePuzzle);
-
-  animate();
-}
-
-function resizeCamera(){
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  // Pull back on narrow screens so the cube isn't huge on mobile
-  camera.position.z = (window.innerWidth < 600) ? 7 : 5;
-}
-
-function onPointerDown(e){ isDragging=true; dragMoved=false; prev.x=e.clientX; prev.y=e.clientY; }
-function onPointerMove(e){ if(!isDragging) return; const dx=e.clientX-prev.x, dy=e.clientY-prev.y; cube.rotation.y += dx*0.01; cube.rotation.x += dy*0.01; prev.x=e.clientX; prev.y=e.clientY; dragMoved=true; }
-function onPointerUp(){ isDragging=false; }
-
-function animate(){ requestAnimationFrame(animate); renderer.render(scene, camera); }
-
-// ===== Picking helpers =====
-function faceLabelFromMaterialIndex(i){
-  // Our materials order: [right, left, top, bottom, front, back]
-  return (i===4?'front': i===5?'back': i===1?'left': i===0?'right': i===2?'top': i===3?'bottom':'');
-}
-function materialIndexFromFaceIndex(geom, faceIndex){
-  const triStart = faceIndex * 3;
-  for (let g of geom.groups) { if (triStart >= g.start && triStart < g.start+g.count) return g.materialIndex; }
-  return 0;
-}
-function pickFace(event){
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const hits = raycaster.intersectObject(cube);
-  if (!hits.length) return '';
-  const matIdx = materialIndexFromFaceIndex(cube.geometry, hits[0].faceIndex);
-  return faceLabelFromMaterialIndex(matIdx);
-}
-
-// ===== Modal helpers =====
-function openPuzzle(face){
-  if (solved[face]) { toast(`That panel is already unlocked.`); return; }
-  if (face==='front')   renderTikiPuzzle(face);          // orientation + time
-  else if (face==='right')  renderDurianPuzzle(face);    // warding fruit
-  else if (face==='back')   renderConstellationPuzzle(face); // star sliders (gated)
-  else if (face==='left')   renderRicePuzzle(face);      // scaffold (arithmomania)
-  else if (face==='top')    renderAlchemyPuzzle(face);   // scaffold (2:3:1)
-  else if (face==='bottom') renderMirrorLightPuzzle(face); // scaffold
-  puzzleModal.classList.add('show');
-}
-function closePuzzle(){
-  puzzleModal.classList.remove('show');
-  puzzleContent.innerHTML = '';
-}
-function solveFace(face, message){
-  solved[face]=true;
-  toast(message || `You unlocked the ${face} panel.`);
-  // Dim that face's material colour as a visual indicator
-  const matIndex = (face==='front'?4: face==='back'?5: face==='left'?1: face==='right'?0: face==='top'?2: 3);
-  cube.material[matIndex].color.set(0x333333);
-  closePuzzle();
-  checkCompletion();
-}
-function checkCompletion(){
-  if (Object.values(solved).every(Boolean)) {
-    certificate.classList.add('show');
-    if (!bgMusic.paused) bgMusic.pause();
+  // ---------- Audio ----------
+  let audioEnabled = true;
+  const listener = new THREE.AudioListener();
+  camera.add(listener);
+  const sfx = {};
+  function loadSfx(name, url) {
+    const a = new THREE.Audio(listener);
+    const loader = new THREE.AudioLoader();
+    loader.load(url, (buffer) => { a.setBuffer(buffer); a.setVolume(0.6); });
+    sfx[name] = a;
   }
-}
-function toast(msg){
-  const div = document.createElement('div');
-  div.textContent = msg;
-  div.style.marginTop = '0.5rem';
-  div.style.opacity = '0.92';
-  puzzleContent.appendChild(div);
-}
+  // You can add real files later; these are optional
+  loadSfx('tick', 'assets/audio/sfx_wheel_tick.ogg');
+  loadSfx('hiss', 'assets/audio/sfx_valve_hiss.ogg');
+  loadSfx('latch', 'assets/audio/sfx_latch.ogg');
+  loadSfx('scope', 'assets/audio/sfx_scope_click.ogg');
+  loadSfx('key', 'assets/audio/sfx_key_in.ogg');
 
-// ===== PUZZLE 1: Tiki Vampire & Day‑Sleep Key =====
-function renderTikiPuzzle(face){
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">The Wrought‑Iron Key</h3>
-    <p style="margin:0 0 0.5rem 0">
-      Vampires sleep <em>by day</em> and <em>upside down</em>.<br/>
-      Rotate this face so it points to the ground, and set the sun to midday.
-    </p>
-    <label for="sunSlider">Sun (hour):</label>
-    <input id="sunSlider" type="range" min="0" max="24" step="0.1" value="9" style="width:100%;">
-    <div id="sunReadout" style="margin:0.25rem 0 0.75rem 0;">Sun: 09:00</div>
-    <div class="puzzle-actions">
-      <button id="tryKeyBtn">Try the key</button>
-    </div>
-  `;
-
-  const sunSlider  = document.getElementById('sunSlider');
-  const sunReadout = document.getElementById('sunReadout');
-  sunSlider.addEventListener('input', ()=>{
-    const h = parseFloat(sunSlider.value);
-    const hh = String(Math.floor(h)).padStart(2,'0');
-    const mm = String(Math.round((h%1)*60)).padStart(2,'0');
-    sunReadout.textContent = `Sun: ${hh}:${mm}`;
+  muteBtn.addEventListener('click', () => {
+    audioEnabled = !audioEnabled;
+    muteBtn.textContent = audioEnabled ? 'Audio' : 'Muted';
   });
+  function play(name, vol=1.0, rate=1.0) {
+    if (!audioEnabled || !sfx[name] || !sfx[name].buffer) return;
+    sfx[name].setVolume(0.5 * vol);
+    sfx[name].playbackRate = rate;
+    sfx[name].stop(); sfx[name].play();
+  }
 
-  document.getElementById('tryKeyBtn').addEventListener('click', ()=>{
-    // "Front face" normal in world space
-    const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
-    const down = new THREE.Vector3(0,-1,0);
-    const facingDown = frontNormal.dot(down) > 0.95;   // ~18° tolerance
+  // ---------- Helpers ----------
+  const tmpV = new THREE.Vector3();
+  function setStatus(text) { statusEl.textContent = text; }
 
-    // Midday range
-    const h = parseFloat(sunSlider.value);
-    const midday = (h >= 11 && h <= 13);
+  function easeCamTo(pos, look, dur=0.7, ease='power2.out') {
+    gsap.to(camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: dur, ease });
+    gsap.to(orbit.target, { x: look.x, y: look.y, z: look.z, duration: dur, ease, onUpdate: ()=>orbit.update() });
+  }
 
-    if (facingDown && midday) {
-      solveFace(face, 'With a dull clink, the iron key slides free.');
-    } else {
-      puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
-      puzzleContent.parentElement.classList.add('shake');
-      toast('The guardian still watches… (Upside down at midday.)');
-    }
+  // ---------- Box & Pedestal ----------
+  const root = new THREE.Group(); scene.add(root);
+
+  // Pedestal (simple)
+  const ped = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 0.45, 0.4, 24),
+    new THREE.MeshStandardMaterial({ color: 0x0c0c0d, roughness: 0.9, metalness: 0.05 })
+  );
+  ped.position.y = -0.55; root.add(ped);
+
+  // Box base (obsidian slab)
+  const box = new THREE.Group(); root.add(box);
+  const matObsidian = new THREE.MeshStandardMaterial({
+    color: 0x0b0b0b, metalness: 0.4, roughness: 0.25,
+    envMapIntensity: 0.8
   });
-}
+  const matBrass = new THREE.MeshStandardMaterial({ color: 0xa98a4a, metalness: 0.85, roughness: 0.35 });
 
-// ===== PUZZLE 2: Durian Ward =====
-function renderDurianPuzzle(face){
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">The Warding Fruit</h3>
-    <p style="margin:0 0 0.5rem 0">
-      Choose the fruit that wards <em>tropical</em> vampires.
-    </p>
-    <div id="fruitGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin:0.5rem 0;">
-      ${['Garlic','Mango','Durian','Pineapple','Lychee','Starfruit'].map(name => `
-        <button class="fruitBtn" data-name="${name}"
-          style="padding:0.8rem 0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px;cursor:pointer;">
-          ${name}
-        </button>`).join('')}
-    </div>
-    <div class="puzzle-actions">
-      <button id="wardBtn" disabled>Ward this panel</button>
-    </div>
-  `;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1, 0.6, 1, 1, 1, 1), matObsidian);
+  body.position.y = -0.05;
+  box.add(body);
 
-  let chosen = '';
-  const buttons = [...document.querySelectorAll('.fruitBtn')];
-  buttons.forEach(b=>{
-    b.addEventListener('click', ()=>{
-      buttons.forEach(x=> x.style.outline='none');
-      b.style.outline = `2px solid var(--deep-red)`;
-      chosen = b.dataset.name;
-      document.getElementById('wardBtn').disabled = false;
-    });
-  });
+  // Carved bezel hint (just a frame for now)
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.62, 1.02), new THREE.MeshBasicMaterial({ color: 0x000000, wireframe: true, opacity: 0.08, transparent: true }));
+  bezel.position.copy(body.position);
+  box.add(bezel);
 
-  document.getElementById('wardBtn').addEventListener('click', ()=>{
-    if (chosen === 'Durian') {
-      solveFace(face, 'The stench is salvation—the ward holds.');
-    } else {
-      puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
-      puzzleContent.parentElement.classList.add('shake');
-      toast('A sour choice. The ward fails.');
-    }
-  });
-}
-
-// ===== PUZZLE 3: Hibiscus Constellation (sliders gated by other panels) =====
-function renderConstellationPuzzle(face){
-  // Sliders unlock as other panels are solved:
-  const unlocked = {
-    r:     solved.front,   // radius ← Tiki vampire
-    rot:   solved.right,   // rotation ← Durian ward
-    spread:solved.left,    // spread  ← Rice (arithmomania)
-    inner: solved.top,     // inner   ← Alchemy
-    offset:solved.bottom   // offset  ← Mirror & Light
+  // ---------- Camera “shots” ----------
+  const shots = {
+    overview:  { pos: new THREE.Vector3(0.8, 0.7, 2.8), look: new THREE.Vector3(0,0,0) },
+    prick:     { pos: new THREE.Vector3(0.15, 0.35, 1.2), look: new THREE.Vector3(0.0, 0.15, 0.1) },
+    pressure:  { pos: new THREE.Vector3(-0.35, 0.32, 1.15), look: new THREE.Vector3(-0.28, 0.18, 0.15) },
+    plugboard: { pos: new THREE.Vector3(0.45, 0.15, 1.1), look: new THREE.Vector3(0.35, 0.05, 0.05) },
+    glyphs:    { pos: new THREE.Vector3(0.0, 0.45, 1.15),  look: new THREE.Vector3(0.0, 0.15, 0.0) },
+    vampire:   { pos: new THREE.Vector3(0.0, 0.25, 1.1),   look: new THREE.Vector3(0.0, 0.1, 0.2) },
+    rings:     { pos: new THREE.Vector3(-0.25, 0.2, 1.05), look: new THREE.Vector3(-0.2, 0.05, 0.0) }
   };
-  const lockIcon = (ok)=> ok?'':'&#x1f512;'; // 🔒
 
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Starlit Prophecy</h3>
-    <p style="margin:0 0 0.5rem 0">Gather the stars into the hibiscus.</p>
-    <canvas id="starCanvas" width="360" height="240" style="width:100%;background:#0e0e0e;border:1px solid #222"></canvas>
-    <div style="margin-top:0.5rem;display:grid;grid-template-columns:1fr 4fr;gap:0.5rem;align-items:center;">
-      <label>Radius ${lockIcon(unlocked.r)}</label>      <input id="slR" type="range" min="10" max="100" value="40" ${unlocked.r?'':'disabled'}>
-      <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot?'':'disabled'}>
-      <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80"  value="35" ${unlocked.spread?'':'disabled'}>
-      <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50"  value="18" ${unlocked.inner?'':'disabled'}>
-      <label>Offset ${lockIcon(unlocked.offset)}</label> <input id="slOff" type="range"  min="-40" max="40" value="0"  ${unlocked.offset?'':'disabled'}>
-    </div>
-    <div class="puzzle-actions"><button id="bindStarsBtn">Bind the stars</button></div>
-  `;
+  function go(name) {
+    const s = shots[name] || shots.overview;
+    orbit.enabled = (name === 'overview');
+    easeCamTo(s.pos, s.look);
+  }
 
-  const cvs = document.getElementById('starCanvas');
-  const ctx = cvs.getContext('2d');
-  const sliders = ['slR','slRot','slSpread','slInner','slOff'].map(id=>document.getElementById(id));
+  // ---------- FSM State ----------
+  const state = {
+    step: 0,              // 0..7
+    bloodStarted: false,  // step 1
+    pressureOK: false,    // step 2
+    plugsCorrect: 0,      // step 3
+    stanzas: [],          // step 4
+    glyphSolved: false,   // step 4
+    vampireKeyReady: false, // step 5
+    ringsSolved: false,   // step 6
+    hardenedKey: false    // step 7
+  };
 
-  function draw(){
-    const [R,rot,spread,inner,off] = sliders.map(s=> parseFloat(s?.value || 0));
-    ctx.clearRect(0,0,cvs.width,cvs.height);
-    ctx.fillStyle = '#bbb';
-    for(let i=0;i<5;i++){
-      const a = (i*(Math.PI*2/5)) + (rot*Math.PI/180);
-      const r = R + (i%2===0?spread:-inner);
-      const x = cvs.width/2 + Math.cos(a)*r;
-      const y = cvs.height/2 + Math.sin(a)*(r+off);
-      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+  function nextStep() {
+    state.step++;
+    const names = [
+      '0 — “Prick to begin”',
+      '1 — Blood started',
+      '2 — Pressure correct',
+      '3 — IV routing done',
+      '4 — Glyph order entered',
+      '5 — Vampire key revealed',
+      '6 — Rings aligned',
+      '7 — Obsidian key forged'
+    ];
+    setStatus('Step: ' + (state.step) + ' — ' + names[state.step]);
+  }
+
+  // ---------- Input (raycast drag) ----------
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let grabbed = null;
+
+  function onPointerDown(e) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    pointer.x = (cx / rect.width) * 2 - 1;
+    pointer.y = -(cy / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(interactives, true);
+    if (hits.length) {
+      const top = hits[0].object.userData.handle || hits[0].object;
+      if (top.onDown) { grabbed = top; top.onDown(hits[0], e); }
     }
   }
-  sliders.forEach(s=> s && s.addEventListener('input', draw));
-  draw();
+  function onPointerMove(e) {
+    if (!grabbed || !grabbed.onMove) return;
+    grabbed.onMove(e);
+  }
+  function onPointerUp(e) {
+    if (!grabbed) return;
+    if (grabbed.onUp) grabbed.onUp(e);
+    grabbed = null;
+  }
 
-  const target = { R:50, rot:25, spread:42, inner:15, off:6 }; // tweak later
-  document.getElementById('bindStarsBtn').addEventListener('click', ()=>{
-    const vals = {
-      R: parseFloat(sliders[0]?.value || 0),
-      rot: parseFloat(sliders[1]?.value || 0),
-      spread: parseFloat(sliders[2]?.value || 0),
-      inner: parseFloat(sliders[3]?.value || 0),
-      off: parseFloat(sliders[4]?.value || 0),
+  renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: true });
+  renderer.domElement.addEventListener('pointermove', onPointerMove,  { passive: true });
+  renderer.domElement.addEventListener('pointerup',   onPointerUp,    { passive: true });
+  renderer.domElement.addEventListener('touchstart', onPointerDown, { passive: true });
+  renderer.domElement.addEventListener('touchmove',  onPointerMove,  { passive: true });
+  renderer.domElement.addEventListener('touchend',   onPointerUp,    { passive: true });
+
+  // ---------- Interactives registry ----------
+  const interactives = [];
+
+  // Utility: create a “hinge” handle (for knobs/valves)
+  function makeHinge(mesh, axis='y', min=-Math.PI, max=Math.PI, detents=0, onChange=()=>{}) {
+    let angle = 0;
+    const handle = {
+      mesh, axis, min, max, detents, onChange,
+      onDown(hit) { this._start = { x: hit.uv ? hit.uv.x : 0, y: hit.uv ? hit.uv.y : 0 }; this._lastX = null; play('tick', .6); },
+      onMove(e) {
+        const dx = (e.movementX || (e.touches ? e.touches[0].movementX : 0)) || 0;
+        const scale = isMobile ? 0.01 : 0.005;
+        angle = THREE.MathUtils.clamp(angle + dx * scale, min, max);
+        mesh.rotation[axis] = angle;
+        if (detents > 0) {
+          const step = (max - min) / detents;
+          const snapped = Math.round((angle - min) / step) * step + min;
+          if (Math.abs(snapped - angle) < step * 0.2) angle = mesh.rotation[axis] = snapped;
+        }
+        onChange(angle);
+      },
+      onUp() { play('tick', .4); }
     };
-    const tol = (a,b,t)=> Math.abs(a-b) <= t;
-    const ok =
-      tol(vals.R, target.R, 4) &&
-      tol(vals.rot, target.rot, 4) &&
-      tol(vals.spread, target.spread, 4) &&
-      tol(vals.inner, target.inner, 3) &&
-      tol(vals.off, target.off, 3);
+    mesh.userData.handle = handle;
+    interactives.push(mesh);
+    return handle;
+  }
 
-    if (ok) solveFace(face, 'The flower blooms among the stars.');
-    else {
-      puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth;
-      puzzleContent.parentElement.classList.add('shake');
-      toast('The stars resist your hand.');
+  // Utility: a draggable “plug” that snaps into a “port”
+  function makePlug(mesh, ports, id, onConnect=()=>{}) {
+    let dragging = false;
+    let start = new THREE.Vector3();
+    mesh.userData.handle = {
+      onDown(hit) { dragging = true; start.copy(mesh.position); play('tick'); },
+      onMove(e) {
+        if (!dragging) return;
+        // Move in camera plane
+        const rect = renderer.domElement.getBoundingClientRect();
+        const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+        const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+        pointer.x = (cx / rect.width) * 2 - 1;
+        pointer.y = -(cy / rect.height) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -mesh.position.z);
+        const p = new THREE.Vector3();
+        raycaster.ray.intersectPlane(plane, p);
+        mesh.position.x = THREE.MathUtils.clamp(p.x, -0.45, 0.45);
+        mesh.position.y = THREE.MathUtils.clamp(p.y, -0.15, 0.35);
+      },
+      onUp() {
+        dragging = false;
+        // Snap to matching port if close enough
+        let snapped = false;
+        for (const port of ports) {
+          if (port.id !== id || port.occupied) continue;
+          const d = mesh.position.distanceTo(port.mesh.position);
+          if (d < 0.08) {
+            mesh.position.copy(port.mesh.position);
+            port.occupied = true; snapped = true; play('latch');
+            onConnect(port);
+            break;
+          }
+        }
+        if (!snapped) gsap.to(mesh.position, { x: start.x, y: start.y, z: start.z, duration: .25, ease: 'power2.out' });
+      }
+    };
+    interactives.push(mesh);
+    return mesh.userData.handle;
+  }
+
+  // ---------- Mechanisms ----------
+  // Step 1: Prick your finger (simple pin you tap to “arm” the box)
+  const prickPad = new THREE.Group();
+  prickPad.position.set(0.0, 0.12, 0.22);
+  box.add(prickPad);
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 32), matBrass);
+  pad.rotation.x = Math.PI/2;
+  prickPad.add(pad);
+  const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.06, 12), new THREE.MeshStandardMaterial({ color: 0x992222, metalness: .8, roughness: .4 }));
+  needle.position.set(0, 0.04, 0); prickPad.add(needle);
+  needle.userData.handle = {
+    onDown() {
+      if (state.step !== 0) return;
+      play('latch', .6);
+      gsap.to(needle.scale, { y: 0.5, duration: 0.2, yoyo: true, repeat: 1 });
+      state.bloodStarted = true;
+      nextStep();              // step -> 1
+      go('pressure');          // guide to next station
+      stanzaStrip.style.display = 'block';
+      stanzaStrip.textContent = 'Stanza I glows faintly…';
+    }
+  };
+  interactives.push(needle);
+
+  // Step 2: Pressure deck — two valves + a gauge
+  const pressureDeck = new THREE.Group();
+  pressureDeck.position.set(-0.28, 0.1, 0.18);
+  box.add(pressureDeck);
+
+  const gauge = new THREE.Group(); pressureDeck.add(gauge);
+  const dial = new THREE.Mesh(new THREE.CircleGeometry(0.07, 32), new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: .4, roughness: .6 }));
+  dial.position.set(0, 0.11, 0); gauge.add(dial);
+  const needleMesh = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.004, 0.004), new THREE.MeshStandardMaterial({ color: 0xdd4444, metalness: .2, roughness: .4 }));
+  needleMesh.position.set(0, 0.11, 0.002); gauge.add(needleMesh);
+
+  const valveLeft = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.01, 12, 32), matBrass);
+  valveLeft.position.set(-0.08, 0.02, 0); pressureDeck.add(valveLeft);
+
+  const valveRight = valveLeft.clone(); valveRight.position.x = 0.08; pressureDeck.add(valveRight);
+
+  let psi = 0;
+  const leftH = makeHinge(valveLeft, 'z', -Math.PI/2, Math.PI/2, 10, onValve);
+  const rightH = makeHinge(valveRight, 'z', -Math.PI/2, Math.PI/2, 10, onValve);
+
+  function onValve() {
+    // simple function: angle sum centered sets "pressure"
+    const t = (valveLeft.rotation.z + valveRight.rotation.z + Math.PI) / (2*Math.PI);
+    psi = THREE.MathUtils.clamp(t, 0, 1);
+    const angle = THREE.MathUtils.lerp(-Math.PI*0.6, Math.PI*0.6, psi);
+    needleMesh.rotation.z = angle;
+    if (Math.abs(psi - 0.62) < 0.05 && state.step === 1) {
+      state.pressureOK = true;
+      play('hiss', 0.7);
+      nextStep();           // step -> 2
+      go('plugboard');
+      stanzaStrip.textContent = 'Stanza II flickers to life…';
+    }
+  }
+
+  // Step 3: Plugboard — one cable to correct port (expand to 5 later)
+  const plugboard = new THREE.Group();
+  plugboard.position.set(0.32, -0.02, 0.1);
+  box.add(plugboard);
+
+  // Ports
+  const ports = [];
+  for (let i=0;i<3;i++){
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.02, 24), new THREE.MeshStandardMaterial({ color: 0x222222, metalness: .7, roughness: .4 }));
+    p.rotation.x = Math.PI/2;
+    p.position.set(-0.06 + i*0.06, 0.08, 0.0);
+    plugboard.add(p);
+    p.userData = { id: i, occupied: false }; ports.push({ id: i, mesh: p, occupied: false });
+  }
+  // Correct port is id=2 (rightmost) for demo
+  const plug = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.05, 24), new THREE.MeshStandardMaterial({ color: 0x343434, metalness: .8, roughness: .35 }));
+  plug.position.set(-0.06, -0.02, 0.0);
+  plugboard.add(plug);
+
+  makePlug(plug, ports, 2, () => {
+    if (state.step === 2) {
+      state.plugsCorrect = 1;
+      nextStep(); // step -> 3
+      stanzaStrip.textContent = 'Stanza III kindles across the bezel…';
+      go('glyphs');
+      // TODO: reveal a stanza + glyph grid overlay here (Step 4)
     }
   });
-}
 
-// ===== Remaining panels (scaffolds for now) =====
-function renderRicePuzzle(face){
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Arithmomania</h3>
-    <p>Enter the total grains spilled across all panels:</p>
-    <input id="riceInput" type="number" inputmode="numeric"
-           style="width:100%;padding:0.5rem;background:#111;border:1px solid #333;color:#eee;border-radius:4px"
-           placeholder="Total grains">
-    <div class="puzzle-actions">
-      <button id="riceCheckBtn">Open</button>
-      <button id="devSolveRice" style="opacity:.6">Dev: Solve</button>
-    </div>
-  `;
-  document.getElementById('riceCheckBtn').addEventListener('click', ()=>{
-    const correctTotal = 123; // TODO: wire counts from other faces
-    const val = parseInt(document.getElementById('riceInput').value,10);
-    if (val === correctTotal) solveFace(face, 'The panel slides with a soft sigh.');
-    else { puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth; puzzleContent.parentElement.classList.add('shake'); toast('Grains scattered from your hand…'); }
+  // ---------- Step 4–7: scaffolds (we’ll fill these next) ----------
+  // Step 4: Glyph entry (show a translucent grid over a face; accept taps in order)
+  // TODO: build glyph plane + click order; when correct -> state.glyphSolved = true; nextStep(); go('vampire');
+
+  // Step 5: Vampire panel (day/night + upside-down => reveal key)
+  // TODO: front face sub-panel with rotate handle; if cube rotated (or handle sim) + "day" state -> show key; nextStep(); go('rings');
+
+  // Step 6: Multi-tier ring maze (linked rings)
+  // TODO: three concentric rings with coupling ratios; align engraved channels to carry “blood”; when aligned -> nextStep();
+
+  // Step 7: Obsidian key forge + final keyhole with bat pivot
+  // TODO: animate “hardening” (shader/emissive), show bat cover hinge; insert key (play('key')); open lid -> artefact
+
+  // ---------- UI ----------
+  resetBtn.addEventListener('click', () => {
+    orbit.reset(); orbit.update();
+    camera.position.copy(shots.overview.pos);
+    orbit.target.copy(shots.overview.look);
+    state.step = 0; setStatus('Step: 0 — “Prick to begin”');
+    stanzaStrip.style.display = 'none';
+    // Reset interactions roughly
+    valveLeft.rotation.z = 0;
+    valveRight.rotation.z = 0;
+    needleMesh.rotation.z = 0;
+    plug.position.set(-0.06, -0.02, 0.0);
+    ports.forEach(p => p.occupied = false);
+    state.bloodStarted = false; state.pressureOK=false; state.plugsCorrect=0;
   });
-  document.getElementById('devSolveRice').addEventListener('click', ()=> solveFace(face,'(dev) Rice solved.'));
-}
 
-function renderAlchemyPuzzle(face){
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Blood Alchemy</h3>
-    <p>Mix the draught (2 : 3 : 1) — Garlic / Moonlight / Rose.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;align-items:center;margin-top:0.5rem">
-      <label>Garlic</label>   <input id="a1" type="range" min="0" max="5" value="0">
-      <label>Moonlight</label><input id="a2" type="range" min="0" max="5" value="0">
-      <label>Rose</label>     <input id="a3" type="range" min="0" max="5" value="0">
-    </div>
-    <div id="brew" style="margin:0.75rem 0;height:22px;background:#111;border:1px solid #333;border-radius:3px;"></div>
-    <div class="puzzle-actions">
-      <button id="brewBtn">Brew</button>
-      <button id="devSolveAlchemy" style="opacity:.6">Dev: Solve</button>
-    </div>
-  `;
-  const bars = [document.getElementById('a1'),document.getElementById('a2'),document.getElementById('a3')];
-  const brew = document.getElementById('brew');
-  bars.forEach(b=> b.addEventListener('input', ()=>{
-    const [g,m,r] = bars.map(x=>+x.value);
-    const rr = Math.min(255, 80 + r*30 + m*10);
-    const gg = Math.min(255, 10 + m*25);
-    const bb = Math.min(255, 10 + g*10);
-    brew.style.background = `rgb(${rr},${gg},${bb})`;
-  }));
-  document.getElementById('brewBtn').addEventListener('click', ()=>{
-    const [g,m,r] = bars.map(x=>+x.value);
-    const ok = (g===2 && m===3 && r===1);
-    if (ok) solveFace(face, 'The draught turns crimson and smokes.');
-    else { puzzleContent.parentElement.classList.remove('shake'); void puzzleContent.parentElement.offsetWidth; puzzleContent.parentElement.classList.add('shake'); toast('The mixture curdles.'); }
+  zoomOutBtn.addEventListener('click', () => { go('overview'); });
+
+  // ---------- Start ----------
+  go('prick');
+
+  // ---------- Render loop ----------
+  function loop() {
+    orbit.update();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  // Responsive
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
   });
-  document.getElementById('devSolveAlchemy').addEventListener('click', ()=> solveFace(face,'(dev) Alchemy solved.'));
-}
-
-function renderMirrorLightPuzzle(face){
-  puzzleContent.innerHTML = `
-    <h3 style="margin:0 0 0.5rem 0;color:var(--deep-red)">Mirror & Light</h3>
-    <p>A beam must reach the sensor without touching a vampire. (Prototype to follow.)</p>
-    <div class="puzzle-actions">
-      <button id="devSolveBeam" style="opacity:.6">Dev: Solve</button>
-    </div>
-  `;
-  document.getElementById('devSolveBeam').addEventListener('click', ()=> solveFace(face,'(dev) Mirrors solved.'));
-}
-
-// ===== Start =====
-init();
+})();
