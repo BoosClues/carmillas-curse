@@ -13,9 +13,6 @@
       --obsidian: #0b0b0b;
       --deep-red: #6b1e2b;
       --notebook-white: #f5f5f5;
-      --amber: #b8860b;
-      --ok: #1f9b5b;
-      --bad: #a33a3a;
     }
 
     /* Base */
@@ -23,89 +20,108 @@
       margin: 0;
       overflow: hidden;
       font-family: "mr-darcy", Georgia, serif;
-      background: var(--obsidian);
+      background-color: var(--obsidian);
       color: var(--notebook-white);
     }
 
     /* Instruction overlay */
     #overlay {
-      position: absolute; top: 10px; left: 10px; z-index: 10;
-      background: rgba(0,0,0,0.7); padding: 1rem; border-radius: 5px; max-width: 340px;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.7);
+      padding: 1rem;
+      border-radius: 5px;
+      max-width: 340px;
     }
-    #overlay h1 { margin: 0 0 0.5rem 0; font-size: 1.6rem; color: var(--deep-red); }
-    #overlay p  { margin: 0 0 0.5rem 0; line-height: 1.3; }
+    #overlay h1 {
+      margin: 0 0 0.5rem 0;
+      font-size: 1.6rem;
+      color: var(--deep-red);
+    }
+    #overlay p { margin: 0 0 0.5rem 0; line-height: 1.3; }
     #overlay button {
-      padding: 0.5rem 0.8rem; background: var(--deep-red); border: none; color: var(--notebook-white);
-      font-family: inherit; cursor: pointer; border-radius: 3px; margin-right: 0.5rem;
+      padding: 0.5rem 0.8rem;
+      background: var(--deep-red);
+      border: none;
+      color: var(--notebook-white);
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 3px;
+      margin-right: 0.5rem;
     }
 
     /* Certificate overlay */
     #certificate {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
-      display: none; justify-content: center; align-items: center; z-index: 20;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 20;
     }
     #certificate.show { display: flex; }
     #certificate .cert-content {
       background: var(--obsidian);
       border: 2px solid var(--deep-red);
-      padding: 1.5rem; text-align: center; max-width: 400px; border-radius: 6px;
+      padding: 1.5rem;
+      text-align: center;
+      max-width: 400px;
+      border-radius: 6px;
     }
     #certificate img { max-width: 100%; margin-bottom: 1rem; }
     #certificate h2 { margin: 0 0 0.5rem 0; color: var(--deep-red); }
 
     /* Three.js canvas container */
-    #three-container { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; }
+    #three-container {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+    }
 
-    /* Puzzle modal (reusable) */
+    /* Puzzle modal (reusable for all puzzles) */
     .puzzle-modal {
-      position: fixed; inset: 0; z-index: 19; display: none;
-      align-items: center; justify-content: center; background: rgba(0,0,0,0.85);
+      position: fixed; inset: 0; z-index: 19;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.85);
     }
     .puzzle-modal.show { display: flex; }
     .puzzle-card {
-      width: min(92vw, 560px);
+      width: min(92vw, 520px);
       background: var(--obsidian);
       border: 2px solid var(--deep-red);
-      border-radius: 6px; padding: 1rem; color: var(--notebook-white);
+      border-radius: 6px;
+      padding: 1rem;
+      color: var(--notebook-white);
     }
-    .puzzle-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
+    .puzzle-actions {
+      margin-top: 0.75rem;
+      display: flex; gap: 0.5rem; justify-content: flex-end;
+    }
     .puzzle-actions button {
-      padding: 0.5rem 0.8rem; background: var(--deep-red); border: none; color: var(--notebook-white); border-radius: 3px; cursor: pointer;
+      padding: 0.5rem 0.8rem;
+      background: var(--deep-red);
+      border: none;
+      color: var(--notebook-white);
+      border-radius: 3px;
+      cursor: pointer;
     }
 
-    /* Gauges UI */
-    .gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0.75rem 0; }
-    .g { background: #0e0e0e; border: 1px solid #222; border-radius: 6px; padding: 0.6rem; }
-    .g h4 { margin: 0 0 0.25rem 0; font-weight: 600; color: var(--notebook-white); }
-    .g .read { font-variant-numeric: tabular-nums; font-size: 1.1rem; }
-    .g .read.ok { color: var(--ok); } .g .read.warn { color: var(--amber); } .g .read.bad { color: var(--bad); }
-    .zones { font-size: 0.8rem; opacity: 0.8; margin-top: 0.25rem; }
-
-    /* Dials UI */
-    .dials { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-    .dial { background: #0e0e0e; border: 1px solid #222; border-radius: 6px; padding: 0.6rem; }
-    .dial h5 { margin: 0 0 0.4rem 0; color: var(--notebook-white); }
-    .dial .row { display: grid; grid-template-columns: 48px 1fr; align-items: center; gap: 0.5rem; }
-    .dial .pos { display: flex; gap: 0.25rem; }
-    .pos button {
-      flex: 1 1 0; padding: 0.45rem 0.25rem; background: #151515; border: 1px solid #2a2a2a; color: #ddd;
-      border-radius: 4px; cursor: pointer; font-weight: 600;
+    /* Feedback animation for wrong attempts */
+    @keyframes shake {
+      0% { transform: translateX(0); }
+      25% { transform: translateX(6px); }
+      50% { transform: translateX(-6px); }
+      75% { transform: translateX(4px); }
+      100% { transform: translateX(0); }
     }
-    .pos button.active { outline: 2px solid var(--deep-red); }
-
-    /* Pulse tube */
-    .tube { height: 10px; background: #140a0a; border: 1px solid #291516; border-radius: 6px; position: relative; overflow: hidden; }
-    .tube::after { content: ""; position: absolute; top: 0; left: -40%; width: 40%; height: 100%; background: linear-gradient(90deg,#6b1e2b,#b02c3c); animation: flow 1.1s linear infinite; }
-    .tube.slow::after { animation-duration: 1.5s; }
-    .tube.fast::after { animation-duration: 0.7s; }
-    @keyframes flow { from { left: -40%; } to { left: 100%; } }
-
-    /* Shake feedback */
-    @keyframes shake { 0%{transform:translateX(0)} 25%{transform:translateX(6px)} 50%{transform:translateX(-6px)} 75%{transform:translateX(4px)} 100%{transform:translateX(0)} }
     .shake { animation: shake 220ms ease-in-out; }
 
-    /* Mobile overlay tweaks */
-    @media (max-width: 600px) { #overlay { max-width: 84vw; font-size: 0.92rem; } }
+    /* Mobile QoL tweaks */
+    @media (max-width: 600px) {
+      #overlay { max-width: 84vw; font-size: 0.92rem; }
+    }
   </style>
 </head>
 <body>
@@ -113,7 +129,7 @@
   <div id="overlay">
     <h1>Carmilla's Curse</h1>
     <p id="instructionText">
-      Drag to rotate the box. Click a face to open its panel. Complete all panels to reveal the artifact.
+      Drag to rotate the box. Tap a face to open its puzzle. When all faces are unlocked, your artefact appears.
     </p>
     <button id="resetBtn">Reset Rotation</button>
     <button id="musicBtn">Play Music</button>
@@ -124,7 +140,7 @@
     <div class="cert-content">
       <img id="artifactImage" src="artifact.png" alt="Hidden Artefact" />
       <h2>Certificate of Completion</h2>
-      <p>You have lifted Carmilla's curse and earned a special advantage.</p>
+      <p>You have lifted Carmilla's curse and earned a special advantage. Present this at the party.</p>
       <button id="closeCertBtn">Close</button>
     </div>
   </div>
@@ -139,14 +155,16 @@
     </div>
   </div>
 
-  <!-- Three.js container -->
+  <!-- WebGL mount -->
   <div id="three-container"></div>
 
   <!-- Background music -->
   <audio id="bgMusic" src="background.mp3" loop></audio>
 
-  <!-- Three.js (manual rotation; no OrbitControls needed) -->
+  <!-- Three.js library (no OrbitControls needed) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+
+  <!-- App logic -->
   <script src="./script.js"></script>
 </body>
 </html>
