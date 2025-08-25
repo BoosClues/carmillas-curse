@@ -1,27 +1,48 @@
-// === Carmilla's Curse - script.js (updated) ===
-// This version includes organic geometry, border-integrated textures, a sun dial with smooth brightness transitions, and an inventory system.
+// === Carmilla's Curse - script.js ===
+//
+// This script drives the interactive puzzle box.  It loads carved textures for
+// each side of the cube, applies rounded corners and small chips to make the
+// geometry look aged and hand‑carved, adds lighting for depth, and wires up
+// puzzles, a sun dial, and an inventory overlay.  The vampire’s face on the
+// front face reacts to the sun dial and cube orientation: during the day her
+// eyes stay closed, and her mouth only opens when the cube is upside down and
+// the sun dial is set to midday (11–13).  At night her eyes open but the
+// mouth remains shut.
 
-const resetBtn     = document.getElementById('resetBtn');
-const musicBtn     = document.getElementById('musicBtn');
-const certificate  = document.getElementById('certificate');
-const closeCertBtn = document.getElementById('closeCertBtn');
-const bgMusic      = document.getElementById('bgMusic');
+// Grab references to DOM elements
+const resetBtn       = document.getElementById('resetBtn');
+const musicBtn       = document.getElementById('musicBtn');
+const certificate    = document.getElementById('certificate');
+const closeCertBtn   = document.getElementById('closeCertBtn');
+const bgMusic        = document.getElementById('bgMusic');
 const sunDialSlider  = document.getElementById('sunDialSlider');
 const sunDialReadout = document.getElementById('sunDialReadout');
-const puzzleModal   = document.getElementById('puzzleModal');
-const puzzleContent = document.getElementById('puzzleContent');
-const puzzleClose   = document.getElementById('puzzleCloseBtn');
-const inventoryList = document.getElementById('inventoryList');
+const puzzleModal    = document.getElementById('puzzleModal');
+const puzzleContent  = document.getElementById('puzzleContent');
+const puzzleClose    = document.getElementById('puzzleCloseBtn');
+const inventoryList  = document.getElementById('inventoryList');
 
+// Track which panels are solved and inventory items collected
 const solved = { front:false, back:false, left:false, right:false, top:false, bottom:false };
 const inventory = [];
 
+// Three.js globals
 let scene, camera, renderer, cube, raycaster, mouse;
 let isDragging = false, dragMoved = false;
-let prev = { x:0, y:0 };
+let prev        = { x:0, y:0 };
 let initialRotation = { x:0, y:0 };
 
-function applyRoundedCorners(geom, radius=0.15) {
+/**
+ * Apply rounded corners to a box geometry.  This function collapses the
+ * corners of the box inward based on a given radius, making the edges
+ * gently curved rather than sharp.  Without this the box looks very
+ * computer‑generated; the rounded corners give it a more hand‑carved feel.
+ *
+ * @param {THREE.BufferGeometry} geom The geometry to modify
+ * @param {number} radius A value between 0 and 0.5 controlling how far
+ *        the corners are pulled inward
+ */
+function applyRoundedCorners(geom, radius=0.2) {
   const pos = geom.attributes.position;
   const v   = new THREE.Vector3();
   for (let i=0; i<pos.count; i++) {
@@ -36,15 +57,25 @@ function applyRoundedCorners(geom, radius=0.15) {
   geom.computeVertexNormals();
 }
 
-function addChips(geom, magnitude=0.05, probability=0.4) {
+/**
+ * Randomly displace vertices near the edges of a box to simulate small chips
+ * and wear in the wood or stone.  Without this the surface is perfectly
+ * smooth; adding a little randomness makes the box look aged.
+ *
+ * @param {THREE.BufferGeometry} geom The geometry to modify
+ * @param {number} magnitude How far to displace vertices (relative units)
+ * @param {number} probability The chance each vertex near an edge will be moved
+ */
+function addChips(geom, magnitude=0.08, probability=0.3) {
   const pos = geom.attributes.position;
   const v   = new THREE.Vector3();
   for (let i=0; i<pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const nearEdge =
+    const nearEdge = (
       Math.abs(Math.abs(v.x) - 1) < 0.3 ||
       Math.abs(Math.abs(v.y) - 1) < 0.3 ||
-      Math.abs(Math.abs(v.z) - 1) < 0.3;
+      Math.abs(Math.abs(v.z) - 1) < 0.3
+    );
     if (nearEdge && Math.random() < probability) {
       v.x += (Math.random() - 0.5) * magnitude;
       v.y += (Math.random() - 0.5) * magnitude;
@@ -55,6 +86,11 @@ function addChips(geom, magnitude=0.05, probability=0.4) {
   geom.computeVertexNormals();
 }
 
+/**
+ * Set up the Three.js scene, camera, renderer, lights, cube, and input
+ * handlers.  Loads textures for each face, applies geometry modifications,
+ * attaches event listeners, and kicks off the render loop.
+ */
 function init() {
   const container = document.getElementById('three-container');
   scene = new THREE.Scene();
@@ -66,18 +102,23 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.style.touchAction = 'none';
-  // Smooth brightness transitions
+  // Smooth brightness transitions for the sun dial
   renderer.domElement.style.transition = 'filter 0.8s ease';
   container.appendChild(renderer.domElement);
 
-  // Lighting
-  const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-  scene.add(ambient);
+  // Lighting gives depth to the carved borders and chips
+  const ambient     = new THREE.AmbientLight(0xffffff, 0.7);
   const directional = new THREE.DirectionalLight(0xffffff, 0.6);
-  directional.position.set(3,3,5);
+  directional.position.set(3, 3, 5);
+  scene.add(ambient);
   scene.add(directional);
 
-  // Load textures.  Fall back to original back/bottom textures if combined ones don’t exist.
+  // Load carved textures for each face.  These images combine the original
+  // decorative border with a puzzle motif in the centre.  All are 1024×1024
+  // PNGs.  We assume they exist in the same folder as this script.  If
+  // `back_constellation_combined.png` or `bottom_mirror_combined.png` are
+  // missing, replace their filenames below with `back_constellation.png` or
+  // `bottom_mirror.png` respectively.
   const loader = new THREE.TextureLoader();
   const textures = {
     frontDay:       loader.load('front_day_combined.png'),
@@ -86,23 +127,20 @@ function init() {
     right:          loader.load('right_durian_combined.png'),
     left:           loader.load('left_rice_combined.png'),
     top:            loader.load('top_alchemy_combined.png'),
-    // Fallback to bottom_mirror.png and back_constellation.png if combined versions are missing.
-    bottom:         loader.load('bottom_mirror_combined.png', undefined, undefined, () => {}),
-    back:           loader.load('back_constellation_combined.png', undefined, undefined, () => {}),
+    bottom:         loader.load('bottom_mirror_combined.png'),
+    back:           loader.load('back_constellation_combined.png'),
   };
-  // If the combined bottom/back textures fail to load, Three.js will still proceed.  If you
-  // find those faces are blank, upload bottom_mirror_combined.png and back_constellation_combined.png,
-  // or replace the filenames above with 'bottom_mirror.png' and 'back_constellation.png'.
+  // Expose front textures globally for update logic
   window.__frontDayTexture       = textures.frontDay;
   window.__frontDayClosedTexture = textures.frontDayClosed;
   window.__frontNightTexture     = textures.frontNight;
 
-  // Build organic box geometry
-  const boxGeom = new THREE.BoxGeometry(2, 2, 2, 8, 8, 8);
-  applyRoundedCorners(boxGeom, 0.2);
-  addChips(boxGeom, 0.08, 0.3);
+  // Create a subdivided cube and apply rounding and chips
+  const geom = new THREE.BoxGeometry(2, 2, 2, 8, 8, 8);
+  applyRoundedCorners(geom, 0.2);
+  addChips(geom, 0.08, 0.3);
 
-  // Materials: [right, left, top, bottom, front, back]
+  // Materials arranged as [right, left, top, bottom, front, back]
   const materials = [
     new THREE.MeshStandardMaterial({ map: textures.right }),
     new THREE.MeshStandardMaterial({ map: textures.left }),
@@ -111,35 +149,37 @@ function init() {
     new THREE.MeshStandardMaterial({ map: textures.frontNight }),
     new THREE.MeshStandardMaterial({ map: textures.back }),
   ];
-  cube = new THREE.Mesh(boxGeom, materials);
+  cube = new THREE.Mesh(geom, materials);
   scene.add(cube);
 
+  // Save the initial orientation so the reset button can restore it
   initialRotation.x = cube.rotation.x;
   initialRotation.y = cube.rotation.y;
 
   raycaster = new THREE.Raycaster();
   mouse     = new THREE.Vector2();
 
-  // Drag and click handling
-  const c = renderer.domElement;
-  c.addEventListener('mousedown', (e) => {
-    isDragging = true; dragMoved = false; prev.x = e.clientX; prev.y = e.clientY;
+  // Setup drag and click handlers for rotation and puzzle activation
+  const canvas = renderer.domElement;
+  canvas.addEventListener('mousedown', (e) => {
+    isDragging = true; dragMoved = false;
+    prev.x = e.clientX; prev.y = e.clientY;
   });
-  c.addEventListener('mousemove', (e) => {
+  canvas.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     cube.rotation.y += (e.clientX - prev.x) * 0.01;
     cube.rotation.x += (e.clientY - prev.y) * 0.01;
     prev.x = e.clientX; prev.y = e.clientY;
     dragMoved = true;
   });
-  c.addEventListener('mouseup', () => { isDragging = false; });
-  c.addEventListener('mouseleave', () => { isDragging = false; });
-  c.addEventListener('touchstart', (e) => {
+  canvas.addEventListener('mouseup',   () => { isDragging = false; });
+  canvas.addEventListener('mouseleave',() => { isDragging = false; });
+  canvas.addEventListener('touchstart', (e) => {
     if (!e.touches.length) return;
     isDragging = true; dragMoved = false;
     prev.x = e.touches[0].clientX; prev.y = e.touches[0].clientY;
-  }, {passive:true});
-  c.addEventListener('touchmove', (e) => {
+  }, { passive:true });
+  canvas.addEventListener('touchmove', (e) => {
     if (!isDragging || !e.touches.length) return;
     const x = e.touches[0].clientX;
     const y = e.touches[0].clientY;
@@ -147,10 +187,11 @@ function init() {
     cube.rotation.x += (y - prev.y) * 0.01;
     prev.x = x; prev.y = y;
     dragMoved = true;
-  }, {passive:true});
-  c.addEventListener('touchend', () => { isDragging = false; });
-  c.addEventListener('click', (event) => {
-    if (dragMoved) { dragMoved=false; return; }
+  }, { passive:true });
+  canvas.addEventListener('touchend', () => { isDragging = false; });
+  canvas.addEventListener('click', (event) => {
+    if (dragMoved) { dragMoved = false; return; }
+    // Raycast to determine which face was clicked
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -158,12 +199,12 @@ function init() {
     const hits = raycaster.intersectObject(cube);
     if (!hits.length) return;
     const faceIndex = hits[0].faceIndex;
-    const matIdx = materialIndexFromFaceIndex(cube.geometry, faceIndex);
-    const faceName = faceLabelFromMaterialIndex(matIdx);
+    const matIndex  = materialIndexFromFaceIndex(cube.geometry, faceIndex);
+    const faceName  = faceLabelFromMaterialIndex(matIndex);
     openPuzzle(faceName);
   });
 
-  // Resize
+  // Window resize handler
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
@@ -171,7 +212,7 @@ function init() {
     camera.position.z = (window.innerWidth < 600) ? 7 : 5;
   });
 
-  // Buttons
+  // Button actions
   resetBtn.addEventListener('click', () => {
     cube.rotation.x = initialRotation.x;
     cube.rotation.y = initialRotation.y;
@@ -188,31 +229,49 @@ function init() {
   closeCertBtn.addEventListener('click', () => certificate.classList.remove('show'));
   puzzleClose.addEventListener('click', closePuzzle);
 
-  // Sun dial: update brightness and front texture
+  // Sun dial controls brightness and front face textures
   function updateSun() {
     const hVal = parseFloat(sunDialSlider.value);
+    // Update the readout (HH:MM)
     const hh = String(Math.floor(hVal)).padStart(2,'0');
     const mm = String(Math.round((hVal % 1) * 60)).padStart(2,'0');
     sunDialReadout.textContent = `Sun: ${hh}:${mm}`;
+    // Brightness is minimum 0.7 at midnight, maximum 1.3 at noon
     const brightness = 0.7 + 0.6 * Math.sin((hVal / 24) * Math.PI);
     renderer.domElement.style.filter = `brightness(${brightness.toFixed(2)})`;
+    // Update the front face based on time and orientation
     updateFrontFaceTexture();
   }
   sunDialSlider.addEventListener('input', updateSun);
   updateSun();
 
-  function animate() {
+  // Start animation loop
+  (function animate() {
     requestAnimationFrame(animate);
     renderer.render(scene, camera);
-  }
-  animate();
+  })();
 }
 
-// Helper functions
+/**
+ * Determine which face name corresponds to a material index.  The order of
+ * materials is fixed: [right, left, top, bottom, front, back].
+ *
+ * @param {number} i Material index
+ * @returns {string} A face name: 'front', 'back', 'left', 'right', 'top', or 'bottom'
+ */
 function faceLabelFromMaterialIndex(i) {
-  return (i===4?'front' : i===5?'back' : i===1?'left' : i===0?'right' : i===2?'top' : 'bottom');
+  return i === 4 ? 'front' : i === 5 ? 'back' : i === 1 ? 'left' : i === 0 ? 'right' : i === 2 ? 'top' : 'bottom';
 }
 
+/**
+ * Convert a face index from the geometry to a material index.  Each face of
+ * the cube has two triangles.  The geometry stores them in groups so we
+ * map the face’s triangles back to the material index.
+ *
+ * @param {THREE.BufferGeometry} geom The geometry to inspect
+ * @param {number} faceIndex The index of the intersected triangle
+ * @returns {number} The corresponding material index
+ */
 function materialIndexFromFaceIndex(geom, faceIndex) {
   const triStart = faceIndex * 3;
   for (const g of geom.groups) {
@@ -221,13 +280,21 @@ function materialIndexFromFaceIndex(geom, faceIndex) {
   return 0;
 }
 
+/**
+ * Update the vampire texture on the front face depending on the sun dial and
+ * whether the face is inverted.  During the day the eyes are closed; at
+ * night they open.  The mouth only opens during midday (11–13) when the
+ * cube is upside down.
+ */
 function updateFrontFaceTexture() {
-  if (solved.front) return;
+  if (!cube || !sunDialSlider) return;
+  if (solved.front) return; // no update after solving
   const hVal = parseFloat(sunDialSlider.value);
   const daytime = (hVal >= 6 && hVal <= 18);
   const midday  = (hVal >= 11 && hVal <= 13);
+  // Determine if the front face is pointing downwards
   const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
-  const facingDown = frontNormal.dot(new THREE.Vector3(0,-1,0)) > 0.95;
+  const facingDown  = frontNormal.dot(new THREE.Vector3(0,-1,0)) > 0.95;
   let newMap;
   if (!daytime) {
     newMap = __frontNightTexture;
@@ -240,47 +307,66 @@ function updateFrontFaceTexture() {
   }
 }
 
-// Puzzle helpers
+/**
+ * Open a puzzle modal for the specified face.  Each face has its own puzzle.
+ * If the face is already solved, display a toast instead.
+ *
+ * @param {string} face The face name
+ */
 function openPuzzle(face) {
   if (solved[face]) {
     toast('That panel is already unlocked.');
     return;
   }
-  if (face === 'front') renderTikiPuzzle(face);
+  if (face === 'front')      renderTikiPuzzle(face);
   else if (face === 'right') renderDurianPuzzle(face);
-  else if (face === 'back') renderConstellationPuzzle(face);
-  else if (face === 'left') renderRicePuzzle(face);
-  else if (face === 'top') renderAlchemyPuzzle(face);
-  else if (face === 'bottom') renderMirrorLightPuzzle(face);
+  else if (face === 'back')  renderConstellationPuzzle(face);
+  else if (face === 'left')  renderRicePuzzle(face);
+  else if (face === 'top')   renderAlchemyPuzzle(face);
+  else if (face === 'bottom')renderMirrorLightPuzzle(face);
   puzzleModal.classList.add('show');
 }
+
+/** Close the puzzle modal and clear its content. */
 function closePuzzle() {
   puzzleModal.classList.remove('show');
   puzzleContent.innerHTML = '';
 }
+
+/** Mark a face as solved, dim the panel, and check for overall completion.
+ *
+ * @param {string} face The face name
+ * @param {string} message A congratulatory message
+ */
 function solveFace(face, message) {
   solved[face] = true;
   toast(message || `You unlocked the ${face} panel.`);
-  const idx = (face==='front'?4: face==='back'?5: face==='left'?1: face==='right'?0: face==='top'?2:3);
+  // Dim the colour of the solved face
+  const idx = (face==='front'?4 : face==='back'?5 : face==='left'?1 : face==='right'?0 : face==='top'?2 : 3);
   cube.material[idx].color.set(0x444444);
   closePuzzle();
   checkCompletion();
 }
+
+/** Check if all faces are solved and, if so, show the certificate and stop music. */
 function checkCompletion() {
   if (Object.values(solved).every(Boolean)) {
     certificate.classList.add('show');
     if (!bgMusic.paused) bgMusic.pause();
   }
 }
+
+/** Display a temporary message within the puzzle modal. */
 function toast(msg) {
   const div = document.createElement('div');
   div.textContent = msg;
   div.style.marginTop = '0.5rem';
-  div.style.opacity = '0.92';
+  div.style.opacity   = '0.92';
   puzzleContent.appendChild(div);
 }
 
-// Tiki vampire puzzle
+// === Puzzle implementations ===
+
 function renderTikiPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Wrought‑Iron Key</h3>
@@ -297,6 +383,7 @@ function renderTikiPuzzle(face) {
     const frontNormal = new THREE.Vector3(0,0,1).applyQuaternion(cube.quaternion);
     const facingDown = frontNormal.dot(new THREE.Vector3(0,-1,0)) > 0.95;
     if (midday && facingDown) {
+      // Show a key icon; clicking adds it to inventory
       puzzleContent.innerHTML = `
         <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Wrought‑Iron Key</h3>
         <p style="margin:0 0 0.5rem">A small key glints within the vampire's mouth.</p>
@@ -321,7 +408,6 @@ function renderTikiPuzzle(face) {
   });
 }
 
-// Durian ward puzzle
 function renderDurianPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">The Warding Fruit</h3>
@@ -338,7 +424,7 @@ function renderDurianPuzzle(face) {
   const buttons = [...document.querySelectorAll('.fruitBtn')];
   buttons.forEach(b => {
     b.addEventListener('click', () => {
-      buttons.forEach(x => x.style.outline='none');
+      buttons.forEach(x => x.style.outline = 'none');
       b.style.outline = `2px solid var(--deep-red)`;
       chosen = b.dataset.name;
       document.getElementById('wardBtn').disabled = false;
@@ -356,7 +442,6 @@ function renderDurianPuzzle(face) {
   });
 }
 
-// Constellation puzzle
 function renderConstellationPuzzle(face) {
   const unlocked = {
     r: solved.front,
@@ -371,27 +456,27 @@ function renderConstellationPuzzle(face) {
     <p style="margin:0 0 0.5rem">Gather the stars into the hibiscus.</p>
     <canvas id="starCanvas" width="360" height="240" style="width:100%;background:#0e0e0e;border:1px solid #222"></canvas>
     <div style="margin-top:0.5rem;display:grid;grid-template-columns:1fr 4fr;gap:0.5rem;align-items:center;">
-      <label>Radius ${lockIcon(unlocked.r)}</label>      <input id="slR" type="range" min="10" max="100" value="40" ${unlocked.r?'':'disabled'}>
-      <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot?'':'disabled'}>
-      <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80" value="35" ${unlocked.spread?'':'disabled'}>
-      <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50" value="18" ${unlocked.inner?'':'disabled'}>
-      <label>Offset ${lockIcon(unlocked.off)}</label>    <input id="slOff" type="range" min="-40" max="40" value="0" ${unlocked.off?'':'disabled'}>
+      <label>Radius ${lockIcon(unlocked.r)}</label>      <input id="slR" type="range" min="10" max="100" value="40" ${unlocked.r ? '' : 'disabled'}>
+      <label>Rotation ${lockIcon(unlocked.rot)}</label>  <input id="slRot" type="range" min="0" max="360" value="15" ${unlocked.rot ? '' : 'disabled'}>
+      <label>Spread ${lockIcon(unlocked.spread)}</label> <input id="slSpread" type="range" min="0" max="80" value="35" ${unlocked.spread ? '' : 'disabled'}>
+      <label>Inner ${lockIcon(unlocked.inner)}</label>   <input id="slInner" type="range" min="0" max="50" value="18" ${unlocked.inner ? '' : 'disabled'}>
+      <label>Offset ${lockIcon(unlocked.off)}</label>    <input id="slOff" type="range" min="-40" max="40" value="0" ${unlocked.off ? '' : 'disabled'}>
     </div>
     <div class="puzzle-actions"><button id="bindStarsBtn">Bind the stars</button></div>
   `;
-  const cvs = document.getElementById('starCanvas');
-  const ctx = cvs.getContext('2d');
+  const cvs  = document.getElementById('starCanvas');
+  const ctx  = cvs.getContext('2d');
   const sliders = ['slR','slRot','slSpread','slInner','slOff'].map(id => document.getElementById(id));
   function draw() {
     const [R, rot, spread, inner, off] = sliders.map(s => parseFloat(s?.value || 0));
     ctx.clearRect(0,0,cvs.width,cvs.height);
     ctx.fillStyle = '#bbb';
-    for (let i=0;i<5;i++){
-      const a = (i*(Math.PI*2/5)) + (rot*Math.PI/180);
-      const r = R + (i%2===0? spread : -inner);
-      const x = cvs.width/2 + Math.cos(a)*r;
-      const y = cvs.height/2 + Math.sin(a)*(r + off);
-      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
+    for (let i=0;i<5;i++) {
+      const a = (i * (Math.PI * 2 / 5)) + (rot * Math.PI / 180);
+      const r = R + (i % 2 === 0 ? spread : -inner);
+      const x = cvs.width/2 + Math.cos(a) * r;
+      const y = cvs.height/2 + Math.sin(a) * (r + off);
+      ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
     }
   }
   sliders.forEach(s => s && s.addEventListener('input', draw));
@@ -405,13 +490,13 @@ function renderConstellationPuzzle(face) {
       inner: parseFloat(sliders[3]?.value || 0),
       off: parseFloat(sliders[4]?.value || 0),
     };
-    const tol = (a,b,t) => Math.abs(a-b) <= t;
+    const tol = (a,b,t) => Math.abs(a - b) <= t;
     const ok =
-      tol(vals.R, target.R, 4) &&
-      tol(vals.rot, target.rot, 4) &&
-      tol(vals.spread, target.spread, 4) &&
-      tol(vals.inner, target.inner, 3) &&
-      tol(vals.off, target.off, 3);
+      tol(vals.R,    target.R,    4) &&
+      tol(vals.rot,  target.rot,  4) &&
+      tol(vals.spread,target.spread,4) &&
+      tol(vals.inner,target.inner,3) &&
+      tol(vals.off,  target.off,  3);
     if (ok) {
       solveFace(face, 'The flower blooms among the stars.');
     } else {
@@ -423,7 +508,6 @@ function renderConstellationPuzzle(face) {
   });
 }
 
-// Rice puzzle
 function renderRicePuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Arithmomania</h3>
@@ -432,7 +516,7 @@ function renderRicePuzzle(face) {
     <div class="puzzle-actions"><button id="riceCheckBtn">Open</button></div>
   `;
   document.getElementById('riceCheckBtn').addEventListener('click', () => {
-    const correctTotal = 123;  // adjust as needed
+    const correctTotal = 123; // adjust when real counts are wired
     const val = parseInt(document.getElementById('riceInput').value, 10);
     if (val === correctTotal) {
       solveFace(face, 'The panel slides with a soft sigh.');
@@ -445,20 +529,19 @@ function renderRicePuzzle(face) {
   });
 }
 
-// Alchemy puzzle
 function renderAlchemyPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Blood Alchemy</h3>
     <p>Mix the draught (2:3:1): Garlic / Moonlight / Rose.</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;align-items:center;margin-top:0.5rem">
-      <label>Garlic</label>   <input id="a1" type="range" min="0" max="5" value="0">
-      <label>Moonlight</label><input id="a2" type="range" min="0" max="5" value="0">
-      <label>Rose</label>     <input id="a3" type="range" min="0" max="5" value="0">
+      <label>Garlic</label>    <input id="a1" type="range" min="0" max="5" value="0">
+      <label>Moonlight</label> <input id="a2" type="range" min="0" max="5" value="0">
+      <label>Rose</label>      <input id="a3" type="range" min="0" max="5" value="0">
     </div>
     <div id="brew" style="margin:0.75rem 0;height:22px;background:#111;border:1px solid #333;border-radius:3px;"></div>
     <div class="puzzle-actions"><button id="brewBtn">Brew</button></div>
   `;
-  const bars = [document.getElementById('a1'),document.getElementById('a2'),document.getElementById('a3')];
+  const bars = [document.getElementById('a1'), document.getElementById('a2'), document.getElementById('a3')];
   const brew = document.getElementById('brew');
   bars.forEach(b => b.addEventListener('input', () => {
     const [g,m,r] = bars.map(x => +x.value);
@@ -480,7 +563,6 @@ function renderAlchemyPuzzle(face) {
   });
 }
 
-// Mirror & light puzzle (placeholder)
 function renderMirrorLightPuzzle(face) {
   puzzleContent.innerHTML = `
     <h3 style="margin:0 0 0.5rem;color:var(--deep-red)">Mirror & Light</h3>
@@ -492,5 +574,5 @@ function renderMirrorLightPuzzle(face) {
   });
 }
 
-// Initialize everything
+// Kick off the experience once the page loads
 init();
